@@ -164,10 +164,25 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function loadCurrentConfig() {
-  fetch('/api/config')
-    .then(response => response.json())
+  console.log('Loading current config...');
+  fetch('/api/config', {
+    headers: {
+      'Cache-Control': 'no-cache'
+    }
+  })
+    .then(response => {
+      console.log('Response status:', response.status);
+      if (response.ok) {
+        return response.json();
+      } else {
+        return response.text().then(text => {
+          throw new Error('Server error: ' + text);
+        });
+      }
+    })
     .then(data => {
-      if (data.ok) {
+      console.log('Data received:', data);
+      if (data.ok && data.config) {
         const config = data.config;
         document.getElementById('access-token').value = config.ACCESS_TOKEN || '';
         document.getElementById('nifty-future-key').value = config.NIFTY_FUTURE_key || '';
@@ -177,11 +192,12 @@ function loadCurrentConfig() {
         document.getElementById('pe-strike').value = config.ITM_PE_strike || '';
         showMessage('Current configuration loaded', 'success');
       } else {
-        showMessage('Failed to load config: ' + data.error, 'error');
+        throw new Error('Invalid response format');
       }
     })
     .catch(error => {
-      showMessage('Error loading config: ' + error, 'error');
+      console.error('Load config error:', error);
+      showMessage('Error loading config: ' + error.message, 'error');
     });
 }
 
@@ -199,7 +215,9 @@ function updateConfig(e) {
       config[key] = value.trim();
     }
   }
-  
+
+  console.log('Sending config update:', config);
+
   fetch('/api/config', {
     method: 'POST',
     headers: {
@@ -207,31 +225,58 @@ function updateConfig(e) {
     },
     body: JSON.stringify(config)
   })
-  .then(response => response.json())
+  .then(response => {
+    console.log('Update response status:', response.status);
+    if (response.ok) {
+      return response.json();
+    } else {
+      return response.text().then(text => {
+        throw new Error('Server error: ' + response.status + ' - ' + text);
+      });
+    }
+  })
   .then(data => {
+    console.log('Update response:', data);
     if (data.ok) {
       showMessage('Configuration updated successfully!', 'success');
       document.getElementById('last-updated').textContent = new Date().toLocaleString();
+      // Refresh the form data
+      loadCurrentConfig();
     } else {
-      showMessage('Failed to update config: ' + data.error, 'error');
+      throw new Error('Server reported error: ' + data.error);
     }
   })
   .catch(error => {
-    showMessage('Error updating config: ' + error, 'error');
+    console.error('Update config error:', error);
+    showMessage('Error updating config: ' + error.message, 'error');
   });
 }
 
 function updateStatus() {
   fetch('/api/status')
-    .then(response => response.json())
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      } else {
+        console.log('Status endpoint error:', response.status);
+        return null;
+      }
+    })
     .then(data => {
-      document.getElementById('pipeline-status').textContent = 
-        data.pipeline_running ? 'Running' : 'Stopped';
-      document.getElementById('market-status').textContent = 
-        data.market_hours ? 'Open' : 'Closed';
+      if (data) {
+        document.getElementById('pipeline-status').textContent =
+          data.pipeline_running ? 'Running' : 'Stopped';
+        document.getElementById('market-status').textContent =
+          data.market_hours ? 'Open' : 'Closed';
+      } else {
+        document.getElementById('pipeline-status').textContent = 'Error';
+        document.getElementById('market-status').textContent = 'Error';
+      }
     })
     .catch(error => {
       console.log('Error fetching status:', error);
+      document.getElementById('pipeline-status').textContent = 'Error';
+      document.getElementById('market-status').textContent = 'Error';
     });
 }
 
@@ -242,7 +287,9 @@ function cleanupOldData() {
         if (response.ok) {
           showMessage('Cleanup completed successfully!', 'success');
         } else {
-          showMessage('Cleanup failed', 'error');
+          return response.text().then(text => {
+            showMessage('Cleanup failed: ' + response.status + ' - ' + text, 'error');
+          });
         }
       })
       .catch(error => {
@@ -253,29 +300,42 @@ function cleanupOldData() {
 
 function checkMemoryUsage() {
   fetch('/api/memory-status')
-    .then(response => response.json())
-    .then(data => {
-      const memoryInfo = document.getElementById('memory-info');
-      const memoryFill = document.getElementById('memory-fill');
-      const memoryText = document.getElementById('memory-text');
-      
-      const percentage = (data.memory_used_gb / data.memory_limit_gb) * 100;
-      
-      memoryFill.style.width = percentage + '%';
-      memoryFill.style.backgroundColor = data.is_over_limit ? '#ef4444' : '#10b981';
-      
-      memoryText.textContent = `${data.memory_used_gb}GB / ${data.memory_limit_gb}GB (${percentage.toFixed(1)}%)`;
-      
-      if (data.cleanup_needed) {
-        memoryText.textContent += ' - Cleanup recommended!';
-        memoryText.style.color = '#ef4444';
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      } else {
+        console.log('Memory endpoint error:', response.status);
+        return null;
       }
-      
-      memoryInfo.style.display = 'block';
-      document.getElementById('memory-status').textContent = `${data.memory_used_gb}GB`;
+    })
+    .then(data => {
+      if (data) {
+        const memoryInfo = document.getElementById('memory-info');
+        const memoryFill = document.getElementById('memory-fill');
+        const memoryText = document.getElementById('memory-text');
+
+        const percentage = (data.memory_used_gb / data.memory_limit_gb) * 100;
+
+        memoryFill.style.width = percentage + '%';
+        memoryFill.style.backgroundColor = data.is_over_limit ? '#ef4444' : '#10b981';
+
+        memoryText.textContent = `${data.memory_used_gb}GB / ${data.memory_limit_gb}GB (${percentage.toFixed(1)}%)`;
+
+        if (data.cleanup_needed) {
+          memoryText.textContent += ' - Cleanup recommended!';
+          memoryText.style.color = '#ef4444';
+        }
+
+        memoryInfo.style.display = 'block';
+        document.getElementById('memory-status').textContent = `${data.memory_used_gb}GB`;
+        showMessage(`Memory usage: ${data.memory_used_gb}GB / ${data.memory_limit_gb}GB`, 'success');
+      } else {
+        showMessage('Error checking memory usage', 'error');
+      }
     })
     .catch(error => {
-      showMessage('Error checking memory: ' + error, 'error');
+      console.error('Memory check error:', error);
+      showMessage('Error checking memory: ' + error.toString(), 'error');
     });
 }
 
