@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="terms-container">
+  <div class="auth-card">
+    <div class="auth-header">
+      <h1>Terms and Conditions</h1>
+      <p>Please read and accept to continue</p>
+    </div>
+
+    <div class="terms-content">
+      <h3>Important Disclaimer</h3>
+      <p>
+        TrendVision provides informational market views only. It is not investment,
+        financial, legal, or tax advice. AI-generated insights and signals may be delayed,
+        incomplete, or inaccurate. Errors and outages can occur.
+      </p>
+      <p>
+        Trading and investing involve substantial risk, including the risk of loss.
+        You are solely responsible for your decisions and the risks you take. Always verify
+        information independently and consult a qualified financial advisor before acting.
+        Past performance does not guarantee future results. The platform and its creators are
+        not liable for any losses incurred from use of the site or its outputs.
+      </p>
+
+      <h3>User Responsibilities</h3>
+      <ul>
+        <li>Maintain the confidentiality of your login credentials</li>
+        <li>Comply with applicable laws and regulations</li>
+        <li>Use the platform for lawful, personal purposes only</li>
+      </ul>
+
+      <h3>Privacy</h3>
+      <p>
+        We store minimal user data needed for account access and platform usage.
+        Review the Security Tips section in the user manual for best practices.
+      </p>
+    </div>
+
+    <form method="POST" class="auth-form" style="margin-top: 16px;">
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="agree" required>
+        <label for="agree">I have read and accept the Terms and Conditions above.</label>
+      </div>
+      <div class="auth-buttons">
+        <button type="submit" class="btn btn-primary"><span>Accept and Continue</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+

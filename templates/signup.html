@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="auth-container">
+  <div class="auth-card">
+    <div class="auth-header">
+      <h1>Join TrendVision</h1>
+      <p>Create your account to start trading</p>
+    </div>
+    
+    <form method="POST" class="auth-form">
+      <div class="form-group">
+        <label for="name">Full Name</label>
+        <input type="text" id="name" name="name" required placeholder="Enter your full name">
+      </div>
+      
+      <div class="form-group">
+        <label for="email">Email Address</label>
+        <input type="email" id="email" name="email" required placeholder="Enter your email address">
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required placeholder="Create a strong password">
+      </div>
+      
+      <div class="auth-buttons">
+        <button type="submit" class="btn btn-primary">
+          <span>Create Account</span>
+        </button>
+      </div>
+    </form>
+    
+    <div class="auth-footer">
+      <div class="auth-links">
+        <a href="{{ url_for('login') }}">Already have an account? Sign in</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+

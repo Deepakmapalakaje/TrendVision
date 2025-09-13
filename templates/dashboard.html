@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="dashboard">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <div class="brand">
+      <span class="brand-icon">📊</span>
+      <span class="brand-name">TrendVision</span>
+    </div>
+    <div class="controls">
+      <div class="interval-tabs">
+        <button class="tab active" data-interval="1min">1M</button>
+        <button class="tab" data-interval="5min">5M</button>
+      </div>
+      <div class="status" id="pipeline-status">
+        <span class="status-dot"></span>
+        <span class="status-text">LIVE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Left Panel - Market Data -->
+    <div class="left-panel">
+      <div class="panel-header">
+        <h3>Market Updates</h3>
+        <div class="panel-actions">
+          <button class="action-btn" id="clear-btn" title="Clear">×</button>
+        </div>
+      </div>
+      <div class="market-feed" id="market-feed">
+        <!-- Market updates will appear here -->
+      </div>
+    </div>
+
+    <!-- Right Panel - Signals & Stats -->
+    <div class="right-panel">
+      <!-- Trend Card -->
+      <div class="card">
+        <div class="card-header">
+          <h4>NIFTY 50 Trend</h4>
+        </div>
+        <div class="card-content">
+          <div class="trend-display" id="trend-display">
+            <div class="trend-value">NEUTRAL</div>
+            <div class="trend-time" id="trend-time">-</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Signal Card -->
+      <div class="card">
+        <div class="card-header">
+          <h4>Latest Signal</h4>
+        </div>
+        <div class="card-content">
+          <div class="signal-display" id="signal-display">
+            <div class="signal-text">No active signals</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- P&L Card -->
+      <div class="card">
+        <div class="card-header">
+          <h4>Today's P&L</h4>
+        </div>
+        <div class="card-content">
+          <div class="pnl-grid">
+            <div class="pnl-item">
+              <div class="pnl-label">Profit</div>
+              <div class="pnl-value profit" id="profit">₹0</div>
+            </div>
+            <div class="pnl-item">
+              <div class="pnl-label">Loss</div>
+              <div class="pnl-value loss" id="loss">₹0</div>
+            </div>
+            <div class="pnl-item">
+              <div class="pnl-label">Net</div>
+              <div class="pnl-value net" id="net">₹0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
