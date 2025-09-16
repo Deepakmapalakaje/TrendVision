@@ -12,9 +12,9 @@ import random
 from datetime import datetime, time as dt_time, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, Response
 from werkzeug.security import generate_password_hash, check_password_hash
-
 # Assuming email_utils.py is in the same directory (content provided below)
 from email_utils import send_otp_email
+from zoneinfo import ZoneInfo  # For IST timezone
 
 # Setup logging for observability
 logging.basicConfig(
@@ -35,15 +35,17 @@ USER_DB = os.getenv("USER_DB", "database/users.db")
 MAX_MEMORY_GB = 10
 SLIDING_WINDOW_DAYS = 30  # Keep last 30 days of market data
 
-# Market hours configuration
-MARKET_START_TIME = dt_time(9, 15)  # 9:15 AM
-MARKET_END_TIME = dt_time(15, 30)   # 3:30 PM
+# Market hours configuration (IST)
+IST = ZoneInfo("Asia/Kolkata")
+MARKET_START_TIME = dt_time(9, 15)  # 9:15 AM IST
+MARKET_END_TIME = dt_time(15, 30)  # 3:30 PM IST
+
 pipeline_thread = None
 pipeline_running = False
 
 def is_market_hours():
-    """Check if current time is within market hours"""
-    current_time = datetime.now().time()
+    """Check if current time is within market hours (IST)"""
+    current_time = datetime.now(IST).time()
     return MARKET_START_TIME <= current_time <= MARKET_END_TIME
 
 def check_memory_usage():
@@ -57,27 +59,22 @@ def cleanup_old_data():
     try:
         conn = get_db_connection(TRADING_DB)
         c = conn.cursor()
-        
         # Calculate cutoff date
-        cutoff_date = datetime.now() - timedelta(days=SLIDING_WINDOW_DAYS)
+        cutoff_date = datetime.now(IST) - timedelta(days=SLIDING_WINDOW_DAYS)
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
-        
         # Get all tables in the database
         c.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = c.fetchall()
-        
         deleted_count = 0
         for table in tables:
             table_name = table[0]
             # Skip system tables
             if table_name.startswith('sqlite_'):
                 continue
-                
             # Check if table has timestamp column
             try:
                 c.execute(f"PRAGMA table_info({table_name})")
                 columns = [col[1] for col in c.fetchall()]
-                
                 if 'timestamp' in columns:
                     # Delete old records
                     c.execute(f"DELETE FROM {table_name} WHERE date(timestamp) < ?", (cutoff_str,))
@@ -88,13 +85,10 @@ def cleanup_old_data():
             except Exception as e:
                 logger.error(f"Error cleaning table {table_name}: {e}")
                 continue
-        
         conn.commit()
         conn.close()
-        
         logger.info(f"Cleaned up {deleted_count} old records (older than {SLIDING_WINDOW_DAYS} days)")
         return deleted_count
-        
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
         return 0
@@ -102,18 +96,14 @@ def cleanup_old_data():
 def start_pipeline():
     """Start the market data pipeline"""
     global pipeline_thread, pipeline_running
-    
     if pipeline_running:
         logger.info("Pipeline already running")
         return
-    
     if not is_market_hours():
         logger.info("Outside market hours, not starting pipeline")
         return
-    
     logger.info("Starting market data pipeline...")
     pipeline_running = True
-    
     def run_pipeline():
         try:
             import pipeline1
@@ -124,7 +114,6 @@ def start_pipeline():
             global pipeline_running
             pipeline_running = False
             logger.info("Pipeline stopped")
-    
     pipeline_thread = threading.Thread(target=run_pipeline, daemon=True)
     pipeline_thread.start()
     logger.info("Pipeline started successfully")
@@ -138,25 +127,23 @@ def stop_pipeline():
         # The pipeline will stop naturally when market hours end
 
 def schedule_pipeline():
-    """Schedule pipeline to start and stop at market hours"""
+    """Schedule pipeline to start and stop at market hours (IST)"""
     # Schedule to start at 9:15 AM every weekday
     schedule.every().monday.at("09:15").do(start_pipeline)
     schedule.every().tuesday.at("09:15").do(start_pipeline)
     schedule.every().wednesday.at("09:15").do(start_pipeline)
     schedule.every().thursday.at("09:15").do(start_pipeline)
     schedule.every().friday.at("09:15").do(start_pipeline)
-    
     # Schedule to stop at 3:30 PM every weekday
     schedule.every().monday.at("15:30").do(stop_pipeline)
     schedule.every().tuesday.at("15:30").do(stop_pipeline)
     schedule.every().wednesday.at("15:30").do(stop_pipeline)
     schedule.every().thursday.at("15:30").do(stop_pipeline)
     schedule.every().friday.at("15:30").do(stop_pipeline)
-    
-    logger.info("Pipeline scheduled for market hours (9:15 AM - 3:30 PM)")
+    logger.info("Pipeline scheduled for market hours (9:15 AM - 3:30 PM IST)")
 
 def run_scheduler():
-    """Run the scheduler in a separate thread"""
+    """Run the scheduler in a separate thread, checking every minute"""
     while True:
         schedule.run_pending()
         time.sleep(60)  # Check every minute
@@ -184,7 +171,6 @@ def get_db_connection(db_path):
 def create_app():
     app = Flask(__name__)
     app.secret_key = os.getenv("FLASK_SECRET_KEY", "super-secret-key")
-
     # Ensure user DB exists
     init_user_db()
 
@@ -200,7 +186,6 @@ def create_app():
             if not user or not user.get("terms_accepted"):
                 return redirect(url_for("terms"))
             return redirect(url_for("dashboard"))
-            
         if request.method == "POST":
             email = request.form.get("email", "").strip().lower()
             password = request.form.get("password", "")
@@ -237,13 +222,13 @@ def create_app():
     def logout():
         session.clear()
         return redirect(url_for("login"))
-    
+
     @app.route("/clear-session")
     def clear_session():
         session.clear()
         flash("Session cleared. Please login again.", "info")
         return redirect(url_for("login"))
-    
+
     @app.route("/debug-session")
     def debug_session():
         session_info = {
@@ -262,7 +247,6 @@ def create_app():
             if not user:
                 flash("Email not found", "error")
                 return render_template("forgot.html")
-            
             otp = create_user_otp(user["id"])
             try:
                 send_otp_email(email, otp)
@@ -272,7 +256,7 @@ def create_app():
             except Exception as e:
                 flash(f"Failed to send OTP: {e}", "error")
         return render_template("forgot.html")
-    
+
     @app.route("/reset", methods=["POST"])
     def reset_password():
         email = request.form.get("email", "").strip().lower()
@@ -312,7 +296,6 @@ def create_app():
             session["email"] = user["email"]
             flash("Profile updated", "success")
             user = get_user_by_id(session["user_id"])
-        
         safe_user = dict(user) if user else {}
         formatted_date = "N/A"
         if user and user.get("created_at") and str(user["created_at"]).strip():
@@ -358,7 +341,7 @@ def create_app():
             "market_hours": is_market_hours(),
             "market_start": MARKET_START_TIME.strftime("%H:%M"),
             "market_end": MARKET_END_TIME.strftime("%H:%M"),
-            "current_time": datetime.now().strftime("%H:%M:%S")
+            "current_time": datetime.now(IST).strftime("%H:%M:%S")
         })
 
     @app.route("/terms", methods=["GET", "POST"])
@@ -395,7 +378,7 @@ def create_app():
                 if not admin_user:
                     password_hash = generate_password_hash("dsar")
                     create_user("Admin", "dsar@admin.com", password_hash)
-                    admin_user = get_user_by_email("dsar@admin.com")
+                admin_user = get_user_by_email("dsar@admin.com")
                 session["user_id"] = admin_user["id"]
                 session["email"] = admin_user["email"]
                 flash("Admin login successful", "success")
@@ -531,7 +514,7 @@ def create_app():
         user = get_user_by_id(session["user_id"])
         if not user or user["email"] != "dsar@admin.com":
             flash("Access denied. Admin privileges required.", "error")
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("admin"))
         try:
             deleted_count = cleanup_old_data()
             flash(f"Cleanup completed. Removed {deleted_count} old records.", "success")
@@ -650,11 +633,9 @@ def build_dashboard_payload(interval: str):
     sources = []
     market_summary = {}
     performance_metrics = {}
-    
     try:
         c.execute("SELECT * FROM latest_candles WHERE candle_interval = ? ORDER BY last_updated DESC, instrument_key", (interval,))
         rows = c.fetchall()
-        
         for row in rows:
             rowd = dict(row)
             # Display name logic (from original)
@@ -681,30 +662,24 @@ def build_dashboard_payload(interval: str):
                     display_name = "PE Option"
             else:
                 display_name = rowd.get("instrument_name", instrument_key)
-            
             rowd["symbol"] = display_name
             rowd["display_name"] = display_name
-            
             # Formatting and color coding (from original)
             rowd["price_change_formatted"] = f"{rowd.get('price_change', 0):+.2f}"
             rowd["price_change_pct_formatted"] = f"{rowd.get('price_change_pct', 0):+.2f}%"
             rowd["delta_formatted"] = f"{rowd.get('delta', 0):+d}"
             rowd["delta_pct_formatted"] = f"{rowd.get('delta_pct', 0):+.2f}%"
             rowd["volume_formatted"] = f"{rowd.get('volume', 0):,}"
-            
             rowd["price_change_color"] = "positive" if rowd.get('price_change', 0) > 0 else "negative" if rowd.get('price_change', 0) < 0 else "neutral"
             rowd["delta_color"] = "positive" if rowd.get('delta', 0) > 0 else "negative" if rowd.get('delta', 0) < 0 else "neutral"
-            
             candles.append(rowd)
             sources.append({"instrument_key": rowd["instrument_key"], "table": "latest_candles"})
-        
         # Market summary calculation (from original)
         if candles:
             total_volume = sum(c.get('volume', 0) for c in candles)
             avg_price_change = sum(c.get('price_change_pct', 0) for c in candles) / len(candles)
             positive_moves = sum(1 for c in candles if c.get('price_change', 0) > 0)
             negative_moves = sum(1 for c in candles if c.get('price_change', 0) < 0)
-            
             market_summary = {
                 "total_instruments": len(candles),
                 "total_volume": total_volume,
@@ -714,7 +689,6 @@ def build_dashboard_payload(interval: str):
                 "neutral_moves": len(candles) - positive_moves - negative_moves,
                 "market_sentiment": "BULLISH" if positive_moves > negative_moves else "BEARISH" if negative_moves > positive_moves else "NEUTRAL"
             }
-            
             performance_metrics = {
                 "total_delta": sum(c.get('delta', 0) for c in candles),
                 "avg_delta": sum(c.get('delta', 0) for c in candles) / len(candles) if candles else 0,
@@ -723,7 +697,6 @@ def build_dashboard_payload(interval: str):
                 "total_tick_count": sum(c.get('tick_count', 0) for c in candles),
                 "avg_tick_count": sum(c.get('tick_count', 0) for c in candles) / len(candles) if candles else 0
             }
-            
     except sqlite3.OperationalError:
         logger.warning("latest_candles table not found, using fallback")
         # Fallback logic (from original, with instrument mapping and calculations)
@@ -825,7 +798,6 @@ def build_dashboard_payload(interval: str):
             avg_price_change = sum(c.get('price_change_pct', 0) for c in candles) / len(candles)
             positive_moves = sum(1 for c in candles if c.get('price_change', 0) > 0)
             negative_moves = sum(1 for c in candles if c.get('price_change', 0) < 0)
-            
             market_summary = {
                 "total_instruments": len(candles),
                 "total_volume": total_volume,
@@ -835,7 +807,6 @@ def build_dashboard_payload(interval: str):
                 "neutral_moves": len(candles) - positive_moves - negative_moves,
                 "market_sentiment": "BULLISH" if positive_moves > negative_moves else "BEARISH" if negative_moves > positive_moves else "NEUTRAL"
             }
-            
             performance_metrics = {
                 "total_delta": sum(c.get('delta', 0) for c in candles),
                 "avg_delta": sum(c.get('delta', 0) for c in candles) / len(candles) if candles else 0,
@@ -844,7 +815,6 @@ def build_dashboard_payload(interval: str):
                 "total_tick_count": sum(c.get('tick_count', 0) for c in candles),
                 "avg_tick_count": sum(c.get('tick_count', 0) for c in candles) / len(candles) if candles else 0
             }
-
     # Latest trend and PNL
     latest_trend = None
     pnl_data = {"profit": 0, "loss": 0}
@@ -852,7 +822,6 @@ def build_dashboard_payload(interval: str):
         c.execute("SELECT * FROM trend WHERE candle_interval = ? ORDER BY timestamp DESC LIMIT 1", (interval,))
         trend_row = c.fetchone()
         latest_trend = dict(trend_row) if trend_row else None
-
         c.execute("""
             SELECT
                 SUM(CASE WHEN profit_loss > 0 THEN profit_loss ELSE 0 END) as profit,
@@ -866,11 +835,9 @@ def build_dashboard_payload(interval: str):
         latest_trend = {
             "trend_value": 1 if total_delta > 0 else -1 if total_delta < 0 else 0,
             "buy_recommendation": None,
-            "timestamp": datetime.now().isoformat() if candles else None
+            "timestamp": datetime.now(IST).isoformat() if candles else None
         }
-
     conn.close()
-
     return {
         "candles": candles,
         "trend": {
@@ -892,5 +859,5 @@ if __name__ == "__main__":
         scheduler_thread.start()
         if is_market_hours():
             start_pipeline()
-        logger.info("Market hours scheduler started")
+        logger.info("Market hours scheduler started with IST timezone")
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=False)  # Set debug=False for production
