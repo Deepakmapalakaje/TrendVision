@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="auth-container">
+  <div class="auth-card">
+    <div class="auth-header">
+      <h1>Admin Access</h1>
+      <p>Enter admin credentials to access configuration panel</p>
+    </div>
+    
+    <form method="POST" class="auth-form">
+      <div class="form-group">
+        <label for="username">Admin Username</label>
+        <input type="text" id="username" name="username" required placeholder="Enter admin username">
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Admin Password</label>
+        <input type="password" id="password" name="password" required placeholder="Enter admin password">
+      </div>
+      
+      <div class="auth-buttons">
+        <button type="submit" class="btn btn-primary">
+          <span>Access Admin Panel</span>
+        </button>
+      </div>
+    </form>
+    
+    <div class="auth-footer">
+      <div class="auth-links">
+        <a href="{{ url_for('login') }}">← Back to Regular Login</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

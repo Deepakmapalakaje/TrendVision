@@ -1,0 +1,267 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="admin-panel">
+  <div class="admin-header">
+    <h2>Admin Panel</h2>
+    <p>Update daily configuration for market data pipeline</p>
+  </div>
+
+  <div class="config-form">
+    <form id="config-form">
+      <div class="form-section">
+        <h3>API Configuration</h3>
+        <div class="form-group">
+          <label for="access-token">Access Token</label>
+          <input type="text" id="access-token" name="ACCESS_TOKEN" placeholder="Enter Upstox API token" required>
+          <small>Your Upstox API access token</small>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Future Options</h3>
+        <div class="form-group">
+          <label for="nifty-future-key">Nifty Future Key</label>
+          <input type="text" id="nifty-future-key" name="NIFTY_FUTURE_key" placeholder="NSE_FO|53001" required>
+          <small>Instrument key for Nifty Future</small>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Call Options (CE)</h3>
+        <div class="form-group">
+          <label for="ce-key">CE Option Key</label>
+          <input type="text" id="ce-key" name="ITM_CE_key" placeholder="NSE_FO|40577" required>
+          <small>Instrument key for Call Option</small>
+        </div>
+        <div class="form-group">
+          <label for="ce-strike">CE Strike Price</label>
+          <input type="number" id="ce-strike" name="ITM_CE_strike" placeholder="24500" required>
+          <small>Strike price for Call Option</small>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Put Options (PE)</h3>
+        <div class="form-group">
+          <label for="pe-key">PE Option Key</label>
+          <input type="text" id="pe-key" name="ITM_PE_key" placeholder="NSE_FO|40580" required>
+          <small>Instrument key for Put Option</small>
+        </div>
+        <div class="form-group">
+          <label for="pe-strike">PE Strike Price</label>
+          <input type="number" id="pe-strike" name="ITM_PE_strike" placeholder="24550" required>
+          <small>Strike price for Put Option</small>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" id="load-current" class="btn btn-secondary">Load Current Config</button>
+        <button type="submit" class="btn btn-primary">Update Configuration</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="config-status">
+    <div class="status-card">
+      <h4>Current Status</h4>
+      <div class="status-info">
+        <div class="status-item">
+          <span class="label">Pipeline:</span>
+          <span class="value" id="pipeline-status">-</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Market Hours:</span>
+          <span class="value" id="market-status">-</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Memory Usage:</span>
+          <span class="value" id="memory-status">-</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Last Updated:</span>
+          <span class="value" id="last-updated">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="admin-actions">
+    <div class="action-section">
+      <h4>Data Export</h4>
+      <div class="action-buttons">
+        <a href="/admin/export/users" class="btn btn-secondary">Export Users CSV</a>
+        <a href="/admin/export/market-data" class="btn btn-secondary">Export Market Data CSV</a>
+      </div>
+    </div>
+
+    <div class="action-section">
+      <h4>Data Management</h4>
+      <div class="action-buttons">
+        <button id="cleanup-btn" class="btn btn-warning">Clean Old Data (30+ days)</button>
+        <button id="memory-check-btn" class="btn btn-info">Check Memory Usage</button>
+      </div>
+      <div id="memory-info" class="memory-info" style="display: none;">
+        <div class="memory-bar">
+          <div class="memory-fill" id="memory-fill"></div>
+        </div>
+        <div class="memory-text" id="memory-text"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <h4>How to Get Instrument Keys</h4>
+    <div class="help-content">
+      <p><strong>1. Access Token:</strong> Get from Upstox Developer Console</p>
+      <p><strong>2. Future Key:</strong> Format: NSE_FO|XXXXX (e.g., NSE_FO|53001)</p>
+      <p><strong>3. Option Keys:</strong> Format: NSE_FO|XXXXX (e.g., NSE_FO|40577)</p>
+      <p><strong>4. Strike Prices:</strong> Enter the strike price as numbers (e.g., 24500)</p>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const form = document.getElementById('config-form');
+  const loadBtn = document.getElementById('load-current');
+  
+  // Load current config
+  loadBtn.addEventListener('click', loadCurrentConfig);
+  
+  // Submit form
+  form.addEventListener('submit', updateConfig);
+  
+  // Load status
+  updateStatus();
+  setInterval(updateStatus, 10000);
+  
+  // Add event listeners for new buttons
+  document.getElementById('cleanup-btn').addEventListener('click', cleanupOldData);
+  document.getElementById('memory-check-btn').addEventListener('click', checkMemoryUsage);
+});
+
+function loadCurrentConfig() {
+  fetch('/api/config')
+    .then(response => response.json())
+    .then(data => {
+      if (data.ok) {
+        const config = data.config;
+        document.getElementById('access-token').value = config.ACCESS_TOKEN || '';
+        document.getElementById('nifty-future-key').value = config.NIFTY_FUTURE_key || '';
+        document.getElementById('ce-key').value = config.ITM_CE_key || '';
+        document.getElementById('ce-strike').value = config.ITM_CE_strike || '';
+        document.getElementById('pe-key').value = config.ITM_PE_key || '';
+        document.getElementById('pe-strike').value = config.ITM_PE_strike || '';
+        showMessage('Current configuration loaded', 'success');
+      } else {
+        showMessage('Failed to load config: ' + data.error, 'error');
+      }
+    })
+    .catch(error => {
+      showMessage('Error loading config: ' + error, 'error');
+    });
+}
+
+function updateConfig(e) {
+  e.preventDefault();
+  
+  const formData = new FormData(e.target);
+  const config = {};
+  
+  for (let [key, value] of formData.entries()) {
+    config[key] = value;
+  }
+  
+  fetch('/api/config', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(config)
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.ok) {
+      showMessage('Configuration updated successfully!', 'success');
+      document.getElementById('last-updated').textContent = new Date().toLocaleString();
+    } else {
+      showMessage('Failed to update config: ' + data.error, 'error');
+    }
+  })
+  .catch(error => {
+    showMessage('Error updating config: ' + error, 'error');
+  });
+}
+
+function updateStatus() {
+  fetch('/api/status')
+    .then(response => response.json())
+    .then(data => {
+      document.getElementById('pipeline-status').textContent = 
+        data.pipeline_running ? 'Running' : 'Stopped';
+      document.getElementById('market-status').textContent = 
+        data.market_hours ? 'Open' : 'Closed';
+    })
+    .catch(error => {
+      console.log('Error fetching status:', error);
+    });
+}
+
+function cleanupOldData() {
+  if (confirm('This will delete market data older than 30 days. Continue?')) {
+    fetch('/admin/cleanup', { method: 'POST' })
+      .then(response => {
+        if (response.ok) {
+          showMessage('Cleanup completed successfully!', 'success');
+        } else {
+          showMessage('Cleanup failed', 'error');
+        }
+      })
+      .catch(error => {
+        showMessage('Error during cleanup: ' + error, 'error');
+      });
+  }
+}
+
+function checkMemoryUsage() {
+  fetch('/api/memory-status')
+    .then(response => response.json())
+    .then(data => {
+      const memoryInfo = document.getElementById('memory-info');
+      const memoryFill = document.getElementById('memory-fill');
+      const memoryText = document.getElementById('memory-text');
+      
+      const percentage = (data.memory_used_gb / data.memory_limit_gb) * 100;
+      
+      memoryFill.style.width = percentage + '%';
+      memoryFill.style.backgroundColor = data.is_over_limit ? '#ef4444' : '#10b981';
+      
+      memoryText.textContent = `${data.memory_used_gb}GB / ${data.memory_limit_gb}GB (${percentage.toFixed(1)}%)`;
+      
+      if (data.cleanup_needed) {
+        memoryText.textContent += ' - Cleanup recommended!';
+        memoryText.style.color = '#ef4444';
+      }
+      
+      memoryInfo.style.display = 'block';
+      document.getElementById('memory-status').textContent = `${data.memory_used_gb}GB`;
+    })
+    .catch(error => {
+      showMessage('Error checking memory: ' + error, 'error');
+    });
+}
+
+function showMessage(message, type) {
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `message ${type}`;
+  messageDiv.textContent = message;
+  
+  const form = document.getElementById('config-form');
+  form.insertBefore(messageDiv, form.firstChild);
+  
+  setTimeout(() => {
+    messageDiv.remove();
+  }, 5000);
+}
+</script>
+{% endblock %}

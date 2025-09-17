@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="auth-container">
+  <!-- Left Side - Branding & Features -->
+  <div class="auth-left">
+    <div class="auth-left-content">
+      <h1>Welcome to TrendVision</h1>
+      <p>Your intelligent trading companion for real-time market insights and smart investment decisions.</p>
+      
+      <div class="auth-features">
+        <div class="auth-feature">
+          <div class="auth-feature-icon">📊</div>
+          <div class="auth-feature-text">
+            <h3>Real-time Analytics</h3>
+            <p>Live market data and trend analysis</p>
+          </div>
+        </div>
+        
+        <div class="auth-feature">
+          <div class="auth-feature-icon">🎯</div>
+          <div class="auth-feature-text">
+            <h3>Smart Signals</h3>
+            <p>AI-powered buy/sell recommendations</p>
+          </div>
+        </div>
+        
+        <div class="auth-feature">
+          <div class="auth-feature-icon">⚡</div>
+          <div class="auth-feature-text">
+            <h3>Lightning Fast</h3>
+            <p>Ultra-fast data processing and updates</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Right Side - Login Form -->
+  <div class="auth-right">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h1>Sign In</h1>
+        <p>Access your trading dashboard</p>
+      </div>
+      
+      <form method="POST" class="auth-form">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input type="email" id="email" name="email" required placeholder="Enter your email address">
+        </div>
+        
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required placeholder="Enter your password">
+        </div>
+        
+        <div class="auth-buttons">
+          <button type="submit" class="btn btn-primary">
+            <span>Sign In to Dashboard</span>
+          </button>
+        </div>
+      </form>
+      
+      <div class="auth-footer">
+        <div class="auth-links">
+          <a href="{{ url_for('forgot') }}">Forgot Password?</a>
+          <a href="{{ url_for('signup') }}">Create Account</a>
+        </div>
+        
+        <div class="auth-debug-links">
+          <a href="{{ url_for('clear_session') }}">Clear Session</a>
+          <a href="{{ url_for('debug_session') }}">Debug Session</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+

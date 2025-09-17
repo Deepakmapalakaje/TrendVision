@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="auth-container">
+  <div class="auth-card">
+    <!-- Step 1: Request OTP -->
+    <div id="step1" class="forgot-step">
+      <div class="auth-header">
+        <h1>Reset Password</h1>
+        <p>Enter your email to receive a reset code</p>
+      </div>
+      
+      <form method="POST" class="auth-form" id="otpForm">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input type="email" id="email" name="email" required placeholder="Enter your email address" value="{{ session.get('reset_email', '') }}">
+        </div>
+        
+        <div class="auth-buttons">
+          <button type="submit" class="btn btn-primary">
+            <span>Send Reset Code</span>
+          </button>
+        </div>
+      </form>
+      
+      <div class="auth-footer">
+        <div class="auth-links">
+          <a href="{{ url_for('login') }}">Back to Sign In</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Enter OTP and New Password -->
+    <div id="step2" class="forgot-step" style="display: none;">
+      <div class="auth-header">
+        <h1>Enter Reset Code</h1>
+        <p>Use the code sent to your email</p>
+      </div>
+      
+      <form method="POST" action="{{ url_for('reset_password') }}" class="auth-form" id="resetForm">
+        <div class="form-group">
+          <label for="email_reset">Email Address</label>
+          <input type="email" id="email_reset" name="email" required placeholder="Enter your email address" value="{{ session.get('reset_email', '') }}" readonly>
+        </div>
+        
+        <div class="form-group">
+          <label for="otp">Reset Code</label>
+          <input type="text" id="otp" name="otp" required placeholder="Enter 6-digit code" maxlength="6">
+        </div>
+        
+        <div class="form-group">
+          <label for="new_password">New Password</label>
+          <input type="password" id="new_password" name="new_password" required placeholder="Enter new password">
+        </div>
+        
+        <div class="auth-buttons">
+          <button type="submit" class="btn btn-primary">
+            <span>Reset Password</span>
+          </button>
+        </div>
+      </form>
+      
+      <div class="auth-footer">
+        <div class="auth-links">
+          <a href="#" onclick="showStep1()">← Back to Email</a>
+          <a href="{{ url_for('login') }}">Back to Sign In</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showStep2(email) {
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step2').style.display = 'block';
+  document.getElementById('email_reset').value = email;
+  document.getElementById('otp').focus();
+}
+
+function showStep1() {
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('step1').style.display = 'block';
+  document.getElementById('email').focus();
+}
+
+// Check if we should show step 2 (if OTP was sent successfully)
+document.addEventListener('DOMContentLoaded', function() {
+  // Check if we have a reset email in session (page refresh after OTP sent)
+  const resetEmail = '{{ session.get("reset_email", "") }}';
+  if (resetEmail) {
+    showStep2(resetEmail);
+  }
+  
+  // Also check for success flash message
+  const flashMessages = document.querySelectorAll('.flash.success');
+  for (let flash of flashMessages) {
+    if (flash.textContent.includes('OTP sent')) {
+      // Get email from session or form
+      const email = document.getElementById('email').value || resetEmail;
+      if (email) {
+        showStep2(email);
+        break;
+      }
+    }
+  }
+});
+
+// Auto-format OTP input
+document.getElementById('otp').addEventListener('input', function(e) {
+  this.value = this.value.replace(/[^0-9]/g, '');
+});
+</script>
+
+<style>
+.forgot-step {
+  transition: all 0.3s ease;
+}
+
+.auth-footer .auth-links {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  font-size: 14px;
+}
+
+.auth-footer .auth-links a {
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.auth-footer .auth-links a:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+input[readonly] {
+  background-color: #f8fafc;
+  color: #64748b;
+  cursor: not-allowed;
+}
+</style>
+{% endblock %}
+
+
