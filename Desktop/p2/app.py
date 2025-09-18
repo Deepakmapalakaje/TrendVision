@@ -16,6 +16,19 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from email_utils import send_otp_email
 from zoneinfo import ZoneInfo  # For IST timezone
 
+# SQLite timestamp adapters to fix deprecation warning
+def adapt_datetime_iso(val):
+    """Convert datetime to ISO format for SQLite storage"""
+    return val.isoformat()
+
+def convert_datetime_iso(val):
+    """Convert ISO string back to datetime from SQLite"""
+    return datetime.fromisoformat(val.decode())
+
+# Register the adapters to fix deprecation warnings
+sqlite3.register_adapter(datetime, adapt_datetime_iso)
+sqlite3.register_converter("timestamp", convert_datetime_iso)
+
 # Setup logging for observability
 logging.basicConfig(
     level=logging.INFO,
@@ -93,64 +106,30 @@ def cleanup_old_data():
         logger.error(f"Error during cleanup: {e}")
         return 0
 
-def has_valid_access_token():
-    """Check if access token is valid and present"""
-    try:
-        if not os.path.exists('config/config.json'):
-            return False
-
-        with open('config/config.json', 'r') as f:
-            config = json.load(f)
-
-        access_token = config.get('ACCESS_TOKEN', '').strip()
-        if not access_token or len(access_token) < 10:
-            return False
-
-        # Verify if NIFTY_FUTURE_key is also configured
-        if not config.get('NIFTY_FUTURE_key', '').strip():
-            return False
-
-        return True
-    except Exception as e:
-        logger.error(f"Error checking access token: {e}")
-        return False
-
 def start_pipeline():
-    """Start the market data pipeline only if access token is valid"""
+    """Start the market data pipeline"""
     global pipeline_thread, pipeline_running
-
     if pipeline_running:
         logger.info("Pipeline already running")
         return
-
-    # First, check if access token is valid
-    if not has_valid_access_token():
-        logger.warning("Cannot start pipeline - Access token not configured or invalid")
-        return
-
     if not is_market_hours():
         logger.info("Outside market hours, not starting pipeline")
         return
-
-    logger.info("🔥 Starting Ultra-Fast Market Data Pipeline...")
+    logger.info("Starting market data pipeline...")
     pipeline_running = True
-
     def run_pipeline():
         try:
-            logger.info("🚀 Launching Dual-CPU Processing System")
-            # Import and run the optimized dual-CPU pipeline
             import pipeline1
-            pipeline1.main_dual_cpu_ultra_fast()
+            pipeline1.main()
         except Exception as e:
             logger.error(f"Pipeline error: {e}")
         finally:
             global pipeline_running
             pipeline_running = False
-            logger.info("🛑 Pipeline stopped")
-
+            logger.info("Pipeline stopped")
     pipeline_thread = threading.Thread(target=run_pipeline, daemon=True)
     pipeline_thread.start()
-    logger.info("✅ Ultra-Fast Pipeline started successfully")
+    logger.info("Pipeline started successfully")
 
 def stop_pipeline():
     """Stop the market data pipeline"""
@@ -436,7 +415,6 @@ def create_app():
     @app.route("/api/config", methods=["POST"])
     def update_config():
         try:
-            global pipeline_thread, pipeline_running
             data = request.get_json()
             required_fields = ["ACCESS_TOKEN", "NIFTY_FUTURE_key", "ITM_CE_key", "ITM_CE_strike", "ITM_PE_key", "ITM_PE_strike"]
             for field in required_fields:
@@ -453,84 +431,9 @@ def create_app():
                 pass
             with open('config/config.json', 'w') as f:
                 json.dump(data, f, indent=2)
-
-            # Restart pipeline if token was previously invalid but now valid
-            old_token_valid = False
-            if 'current_config' in locals() and current_config.get('ACCESS_TOKEN', '').strip():
-                old_token_valid = True
-
-            new_token_valid = data.get('ACCESS_TOKEN', '').strip() and len(data['ACCESS_TOKEN'].strip()) >= 10
-
-            # Restart pipeline if access token status changed from invalid to valid
-            if not old_token_valid and new_token_valid and is_market_hours():
-                logger.info("🔄 Access token configured - restarting pipeline...")
-                stop_pipeline()  # Stop current pipeline if running
-                time.sleep(1)  # Brief pause
-                start_pipeline()  # Start with new config
-            elif old_token_valid and not new_token_valid and pipeline_running:
-                logger.warning("⚠️ Access token invalidated - stopping pipeline")
-                stop_pipeline()
-
             return jsonify({"ok": True, "message": "Config updated successfully"})
         except Exception as e:
             logger.error(f"Error updating config: {e}")
-            return jsonify({"ok": False, "error": str(e)}), 500
-
-    @app.route("/api/config/status")
-    def get_config_status():
-        """Get configuration and validation status"""
-        try:
-            config_valid = has_valid_access_token()
-            config_data = {}
-            if config_valid:
-                with open('config/config.json', 'r') as f:
-                    config_data = json.load(f)
-
-                # Mask access token in response
-                if 'ACCESS_TOKEN' in config_data:
-                    config_data['ACCESS_TOKEN'] = '*' * 8  # Show just asterisks for security
-
-            return jsonify({
-                "config_valid": config_valid,
-                "market_hours": is_market_hours(),
-                "pipeline_should_run": config_valid and is_market_hours(),
-                "current_time": datetime.now(IST).strftime("%H:%M:%S"),
-                "config": config_data
-            })
-        except Exception as e:
-            logger.error(f"Error getting config status: {e}")
-            return jsonify({"ok": False, "error": str(e)}), 500
-
-    @app.route("/api/pipeline/start", methods=["POST"])
-    def api_start_pipeline():
-        """API endpoint to manually start pipeline"""
-        if "user_id" not in session:
-            return jsonify({"ok": False, "error": "Unauthorized"}), 403
-
-        if not has_valid_access_token():
-            return jsonify({"ok": False, "error": "Access token not configured"}), 400
-
-        if not is_market_hours():
-            return jsonify({"ok": False, "error": "Outside market hours"}), 400
-
-        try:
-            start_pipeline()
-            return jsonify({"ok": True, "message": "Pipeline started successfully"})
-        except Exception as e:
-            logger.error(f"Error starting pipeline: {e}")
-            return jsonify({"ok": False, "error": str(e)}), 500
-
-    @app.route("/api/pipeline/stop", methods=["POST"])
-    def api_stop_pipeline():
-        """API endpoint to manually stop pipeline"""
-        if "user_id" not in session:
-            return jsonify({"ok": False, "error": "Unauthorized"}), 403
-
-        try:
-            stop_pipeline()
-            return jsonify({"ok": True, "message": "Pipeline stopped successfully"})
-        except Exception as e:
-            logger.error(f"Error stopping pipeline: {e}")
             return jsonify({"ok": False, "error": str(e)}), 500
 
     @app.route("/admin/export/users")
@@ -743,35 +646,39 @@ def build_dashboard_payload(interval: str):
     sources = []
     market_summary = {}
     performance_metrics = {}
+    latest_trend = None  # Initialize latest_trend to avoid UnboundLocalError
+    pnl_data = {"profit": 0, "loss": 0}  # Initialize
+
+    # Load config to get actual keys
+    try:
+        with open('config/config.json', 'r') as f:
+            config = json.load(f)
+        nifty_future_key = config.get('NIFTY_FUTURE_key', 'NSE_FO|5001')
+        itm_ce_key = config.get('ITM_CE_key', 'NSE_FO|47723')
+        itm_pe_key = config.get('ITM_PE_key', 'NSE_FO|47734')
+        ce_strike = config.get('ITM_CE_strike', 24950)
+        pe_strike = config.get('ITM_PE_strike', 25000)
+    except:
+        nifty_future_key = 'NSE_FO|5001'
+        itm_ce_key = 'NSE_FO|47723'
+        itm_pe_key = 'NSE_FO|47734'
+        ce_strike = 24950
+        pe_strike = 25000
+
     try:
         c.execute("SELECT * FROM latest_candles WHERE candle_interval = ? ORDER BY last_updated DESC, instrument_key", (interval,))
         rows = c.fetchall()
         for row in rows:
             rowd = dict(row)
-            # Display name logic using dynamic configuration
-            try:
-                with open('config/config.json', 'r') as f:
-                    config = json.load(f)
-                future_key = config.get('NIFTY_FUTURE_key', 'NSE_FO|53001')
-                ce_key = config.get('ITM_CE_key', 'NSE_FO|40577')
-                pe_key = config.get('ITM_PE_key', 'NSE_FO|40580')
-                ce_strike = config.get('ITM_CE_strike', 24500)
-                pe_strike = config.get('ITM_PE_strike', 24550)
-            except:
-                future_key = 'NSE_FO|53001'
-                ce_key = 'NSE_FO|40577'
-                pe_key = 'NSE_FO|40580'
-                ce_strike = 24500
-                pe_strike = 24550
-
+            # Display name logic using loaded config
             instrument_key = rowd["instrument_key"]
             if instrument_key == "NSE_INDEX|Nifty 50":
                 display_name = "NIFTY 50"
-            elif instrument_key == future_key:
+            elif instrument_key == nifty_future_key:
                 display_name = "NIFTY Future"
-            elif instrument_key == ce_key:
+            elif instrument_key == itm_ce_key:
                 display_name = f"{ce_strike} CE"
-            elif instrument_key == pe_key:
+            elif instrument_key == itm_pe_key:
                 display_name = f"{pe_strike} PE"
             else:
                 display_name = rowd.get("instrument_name", instrument_key)
@@ -812,24 +719,14 @@ def build_dashboard_payload(interval: str):
             }
     except sqlite3.OperationalError:
         logger.warning("latest_candles table not found, using fallback")
-        # Fallback logic using dynamic configuration
+        # Fallback logic using config-loaded keys
         data_type = "candles5" if interval == "5min" else "candles"
-        try:
-            with open('config/config.json', 'r') as f:
-                config = json.load(f)
-            instruments = [
-                "NSE_INDEX|Nifty 50",
-                config.get('NIFTY_FUTURE_key', 'NSE_FO|53001'),
-                config.get('ITM_CE_key', 'NSE_FO|40577'),
-                config.get('ITM_PE_key', 'NSE_FO|40580')
-            ]
-        except:
-            instruments = [
-                "NSE_INDEX|Nifty 50",
-                "NSE_FO|53001",
-                "NSE_FO|40577",
-                "NSE_FO|40580"
-            ]
+        instruments = [
+            "NSE_INDEX|Nifty 50",
+            nifty_future_key,
+            itm_ce_key,
+            itm_pe_key
+        ]
         for ikey in instruments:
             tname = None
             try:
@@ -843,22 +740,12 @@ def build_dashboard_payload(interval: str):
             except sqlite3.OperationalError:
                 pass
             if not tname:
-                try:
-                    with open('config/config.json', 'r') as f:
-                        config = json.load(f)
-                    suffix_map = {
-                        "NSE_INDEX|Nifty 50": "nifty_index",
-                        config.get('NIFTY_FUTURE_key', 'NSE_FO|53001'): "future",
-                        config.get('ITM_CE_key', 'NSE_FO|40577'): "ce_option",
-                        config.get('ITM_PE_key', 'NSE_FO|40580'): "pe_option"
-                    }
-                except:
-                    suffix_map = {
-                        "NSE_INDEX|Nifty 50": "nifty_index",
-                        "NSE_FO|53001": "future",
-                        "NSE_FO|40577": "ce_option",
-                        "NSE_FO|40580": "pe_option"
-                    }
+                suffix_map = {
+                    "NSE_INDEX|Nifty 50": "nifty_index",
+                    nifty_future_key: "future",
+                    itm_ce_key: "ce_option",
+                    itm_pe_key: "pe_option"
+                }
                 suffix = suffix_map.get(ikey)
                 if suffix:
                     pattern = f"{data_type}_{suffix}_%"
@@ -895,29 +782,14 @@ def build_dashboard_payload(interval: str):
                     rowd["volume_formatted"] = f"{rowd['volume']:,}"
                     rowd["price_change_color"] = "positive" if price_change > 0 else "negative" if price_change < 0 else "neutral"
                     rowd["delta_color"] = "positive" if rowd["delta"] > 0 else "negative" if rowd["delta"] < 0 else "neutral"
-                    # Display name
-                    try:
-                        with open('config/config.json', 'r') as f:
-                            config = json.load(f)
-                        future_key = config.get('NIFTY_FUTURE_key', 'NSE_FO|53001')
-                        ce_key = config.get('ITM_CE_key', 'NSE_FO|40577')
-                        pe_key = config.get('ITM_PE_key', 'NSE_FO|40580')
-                        ce_strike = config.get('ITM_CE_strike', 24500)
-                        pe_strike = config.get('ITM_PE_strike', 24550)
-                    except:
-                        future_key = 'NSE_FO|53001'
-                        ce_key = 'NSE_FO|40577'
-                        pe_key = 'NSE_FO|40580'
-                        ce_strike = 24500
-                        pe_strike = 24550
-
+                    # Display name using config
                     if ikey == "NSE_INDEX|Nifty 50":
                         display_name = "NIFTY 50"
-                    elif ikey == future_key:
+                    elif ikey == nifty_future_key:
                         display_name = "NIFTY Future"
-                    elif ikey == ce_key:
+                    elif ikey == itm_ce_key:
                         display_name = f"{ce_strike} CE"
-                    elif ikey == pe_key:
+                    elif ikey == itm_pe_key:
                         display_name = f"{pe_strike} PE"
                     else:
                         display_name = ikey.split("|")[-1] if "|" in ikey else ikey
@@ -951,21 +823,28 @@ def build_dashboard_payload(interval: str):
                 "total_tick_count": sum(c.get('tick_count', 0) for c in candles),
                 "avg_tick_count": sum(c.get('tick_count', 0) for c in candles) / len(candles) if candles else 0
             }
-    # Latest trend and PNL
-    latest_trend = None
-    pnl_data = {"profit": 0, "loss": 0}
-    try:
-        c.execute("SELECT * FROM trend WHERE candle_interval = ? ORDER BY timestamp DESC LIMIT 1", (interval,))
-        trend_row = c.fetchone()
-        latest_trend = dict(trend_row) if trend_row else None
-        c.execute("""
-            SELECT
-                SUM(CASE WHEN profit_loss > 0 THEN profit_loss ELSE 0 END) as profit,
-                ABS(SUM(CASE WHEN profit_loss < 0 THEN profit_loss ELSE 0 END)) as loss
-            FROM trend
-        """)
-        pnl = c.fetchone()
-        pnl_data = {"profit": pnl[0] or 0, "loss": pnl[1] or 0}
+        # Latest trend and PNL
+        try:
+            c.execute("SELECT * FROM trend WHERE candle_interval = ? ORDER BY timestamp DESC LIMIT 1", (interval,))
+            trend_row = c.fetchone()
+            latest_trend = dict(trend_row) if trend_row else None
+        except Exception as trend_error:
+            logger.error(f"Trend query error: {trend_error}")
+            latest_trend = None
+
+        try:
+            c.execute("""
+                SELECT
+                    COALESCE(SUM(CASE WHEN profit_loss > 0 THEN profit_loss ELSE 0 END), 0) as profit,
+                    COALESCE(ABS(SUM(CASE WHEN profit_loss < 0 THEN profit_loss ELSE 0 END)), 0) as loss
+                FROM trend
+            """)
+            pnl = c.fetchone()
+            if pnl:
+                pnl_data = {"profit": pnl[0] or 0, "loss": pnl[1] or 0}
+            logger.debug(f"🎯 PNL Data: {pnl_data}")
+        except Exception as pnl_error:
+            logger.error(f"PNL query error: {pnl_error}")
     except sqlite3.OperationalError:
         total_delta = performance_metrics.get("total_delta", 0)
         latest_trend = {

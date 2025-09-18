@@ -1,65 +1,13 @@
-# ======================================
-# TRENDVISION2004.COM GIT REPOSITORY
-# ======================================
-
-# Python Virtual Environment
-trading_env/
-.venv/
-venv/
-env/
-
-# Database Files (Will be auto-created on VM)
-database/*.db
-database/*.sqlite
-database/*.sqlite3
-
-# Logs and Temporary Files (Will be created on VM)
-*.log
-/app.log
-logs/
-
-/home/trading_app/app.log
-/home/trading_app/logs/
-/home/trading_app/database/*.db
-
-# IDE Files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS Files
-.DS_Store
-Thumbs.db
+# Ignore caches and env
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
+.venv/
 
-# Environment Variables
-.env
-.env.local
-.env.*.local
+# Ignore databases and logs
+database/*.db
+*.log
 
-# SSL Certificates (Will be generated on deployment)
-letsencrypt/
-certbot/
-ssl/
-
-# System Files
-node_modules/
-npm-debug.log*
-
-# Development Backups
-*.bak
-*.backup
-*_old*
-
-# Temporary Deployment Files
-deploy_temp/
-temp/
-
-# Performance Logs
-performance_logs/
-benchmark/
+# Ignore backups and temp
+TrendVision_Backup/
+*.tmp
+.DS_Store
