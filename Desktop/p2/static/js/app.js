@@ -1,14 +1,11 @@
-// Clean Trading Dashboard JavaScript
+// TrendVision Trading Dashboard - Cash Flow Enhanced
 let currentInterval = '1min';
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
-  addScrollToBottomButton();
   fetchAndRender();
-  updatePipelineStatus();
-  setInterval(fetchAndRender, 3000);
-  setInterval(updatePipelineStatus, 10000); // Update status every 10 seconds
+  setInterval(fetchAndRender, 3000); // Update every 3 seconds
 });
 
 function setupEventListeners() {
@@ -22,56 +19,41 @@ function setupEventListeners() {
     });
   });
 
-  // Clear button
-  document.getElementById('clear-btn').addEventListener('click', () => {
-    document.getElementById('market-feed').innerHTML = '';
-  });
-}
-
-function fetchAndRender() {
-  fetch(`/api/summary?interval=${currentInterval}`)
-    .then(r => r.json())
-    .then(d => {
-      if (!d.ok) return;
-      renderMarketFeed(d.nifty_data); // Changed from d.candles
-      renderCashFlow(d.cash_flow);
-      renderActiveSignals(d.active_signals);
-      renderPnl(d.pnl); // Assuming PNL data is still relevant
-    })
-    .catch(() => {});
-}
-
-function renderCashFlow(cashFlow) {
-  if (!cashFlow) return;
-  document.getElementById('min-cash').textContent = `₹${(cashFlow.min_cash || 0).toLocaleString()}`;
-  document.getElementById('current-cash').textContent = `₹${(cashFlow.cash || 0).toLocaleString()}`;
-  document.getElementById('max-cash').textContent = `₹${(cashFlow.max_cash || 0).toLocaleString()}`;
-}
-
-function renderActiveSignals(signals) {
-  const container = document.getElementById('active-signals-display');
-  if (!signals || signals.length === 0) {
-    container.innerHTML = '<div class="signal-text">No active signals</div>';
-    return;
+  // Refresh button
+  const refreshBtn = document.getElementById('clear-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      fetchAndRender();
+      // Add visual feedback
+      refreshBtn.textContent = '⟳';
+      setTimeout(() => refreshBtn.textContent = '⟳', 1000);
+    });
   }
-
-  container.innerHTML = ''; // Clear previous signals
-  signals.forEach(signal => {
-    const signalElement = document.createElement('div');
-    signalElement.className = 'signal-item';
-    signalElement.innerHTML = `
-      <div class="signal-type ${signal.signal_type.toLowerCase()}">${signal.signal_type}</div>
-      <div class="signal-details">
-        <div>${signal.option_key}</div>
-        <div>@ ${signal.entry_price.toFixed(2)}</div>
-      </div>
-      <div class="signal-status ${signal.status.toLowerCase()}">${signal.status}</div>
-    `;
-    container.appendChild(signalElement);
-  });
 }
 
+async function fetchAndRender() {
+  try {
+    const response = await fetch('/api/summary');
+    const data = await response.json();
 
+    if (!data.ok) {
+      console.error('API Error:', data.error);
+      return;
+    }
+
+    // Render all dashboard components
+    renderNiftyData(data.nifty_data, data.future_data);
+    renderCashFlow(data.cash_flow);
+    renderITMOptions(data.itm_options);
+    renderTrend(data.latest_trend);
+    renderLatestSignal(data.latest_trend);
+    renderActiveSignals(data.active_signals);
+    renderRecentSignals(data.active_signals);
+
+  } catch (error) {
+    console.error('Fetch error:', error);
+  }
+}
 
 function renderMarketFeed(candles) {
   const feed = document.getElementById('market-feed');
@@ -655,6 +637,224 @@ function updatePipelineStatus() {
       }
     })
     .catch(() => {});
+}
+
+// ===== NEW RENDERING FUNCTIONS FOR CASH FLOW DASHBOARD =====
+
+// Render NIFTY Index and Future data
+function renderNiftyData(niftyData, futureData) {
+  // NIFTY Index
+  if (niftyData && niftyData.close) {
+    const niftyPrice = document.getElementById('nifty-price');
+    const niftyChange = document.getElementById('nifty-change');
+
+    niftyPrice.textContent = `₹${niftyData.close.toFixed(2)}`;
+
+    if (niftyData.price_change !== undefined) {
+      const change = niftyData.price_change;
+      const changePct = niftyData.price_change_pct || 0;
+      const changeClass = change >= 0 ? 'positive' : 'negative';
+      const changeSymbol = change >= 0 ? '+' : '';
+
+      niftyChange.className = `market-change ${changeClass}`;
+      niftyChange.textContent = `${changeSymbol}${change.toFixed(2)} (${changePct.toFixed(2)}%)`;
+    }
+  }
+
+  // NIFTY Future
+  if (futureData && futureData.close) {
+    const futurePrice = document.getElementById('future-price');
+    const futureChange = document.getElementById('future-change');
+
+    futurePrice.textContent = `₹${futureData.close.toFixed(2)}`;
+
+    if (futureData.price_change !== undefined) {
+      const change = futureData.price_change;
+      const changePct = futureData.price_change_pct || 0;
+      const changeClass = change >= 0 ? 'positive' : 'negative';
+      const changeSymbol = change >= 0 ? '+' : '';
+
+      futureChange.className = `market-change ${changeClass}`;
+      futureChange.textContent = `${changeSymbol}${change.toFixed(2)} (${changePct.toFixed(2)}%)`;
+    }
+  }
+}
+
+// Render Cash Flow data
+function renderCashFlow(cashFlow) {
+  if (!cashFlow) return;
+
+  const currentCash = document.getElementById('current-cash');
+  const minCash = document.getElementById('min-cash');
+  const maxCash = document.getElementById('max-cash');
+
+  if (currentCash) currentCash.textContent = `₹${(cashFlow.cash || 0).toFixed(4)}`;
+  if (minCash) minCash.textContent = `₹${(cashFlow.min_cash || 0).toFixed(4)}`;
+  if (maxCash) maxCash.textContent = `₹${(cashFlow.max_cash || 0).toFixed(4)}`;
+}
+
+// Render ITM Options
+function renderITMOptions(itmOptions) {
+  if (!itmOptions) return;
+
+  // CE Option
+  const ceStrike = document.getElementById('itm-ce-strike');
+  const cePrice = document.getElementById('itm-ce-price');
+
+  if (itmOptions.itm_ce) {
+    const ce = itmOptions.itm_ce;
+    if (ceStrike) ceStrike.textContent = ce.strike || '-';
+    if (cePrice) cePrice.textContent = ce.close ? `₹${ce.close.toFixed(2)}` : '-';
+  }
+
+  // PE Option
+  const peStrike = document.getElementById('itm-pe-strike');
+  const pePrice = document.getElementById('itm-pe-price');
+
+  if (itmOptions.itm_pe) {
+    const pe = itmOptions.itm_pe;
+    if (peStrike) peStrike.textContent = pe.strike || '-';
+    if (pePrice) pePrice.textContent = pe.close ? `₹${pe.close.toFixed(2)}` : '-';
+  }
+}
+
+// Render Trend indicator
+function renderTrend(trend) {
+  const trendValue = document.querySelector('.trend-value');
+  const trendTime = document.getElementById('trend-time');
+  const trendIndicator = document.getElementById('trend-indicator');
+
+  if (trend && trend.trend_value !== undefined) {
+    let trendText = 'NEUTRAL';
+    let trendClass = 'NEUTRAL';
+
+    if (trend.trend_value === 1) {
+      trendText = 'UPTREND';
+      trendClass = 'UP';
+      trendValue.style.color = 'var(--success)';
+    } else if (trend.trend_value === -1) {
+      trendText = 'DOWNTREND';
+      trendClass = 'DOWN';
+      trendValue.style.color = 'var(--danger)';
+    } else {
+      trendText = 'NEUTRAL';
+      trendClass = 'NEUTRAL';
+      trendValue.style.color = 'var(--text)';
+    }
+
+    trendValue.textContent = trendText;
+    if (trendIndicator) trendIndicator.textContent = trendClass;
+
+    if (trend.timestamp && trendTime) {
+      const time = new Date(trend.timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      trendTime.textContent = time;
+    }
+  }
+}
+
+// Render Latest Buy Signal
+function renderLatestSignal(signal) {
+  const signalDisplay = document.getElementById('signal-display');
+  const signalDetails = document.getElementById('signal-details');
+
+  if (!signal || !signal.buy_recommendation) {
+    if (signalDisplay) signalDisplay.querySelector('.signal-text').textContent = 'No active signals';
+    if (signalDetails) signalDetails.innerHTML = '';
+    return;
+  }
+
+  // Update signal text
+  const signalTextElement = signalDisplay.querySelector('.signal-text');
+  signalTextElement.textContent = signal.buy_recommendation;
+  signalTextElement.className = `signal-text ${signal.buy_recommendation.toLowerCase().replace('_', '-')}`;
+
+  // Update signal details
+  if (signalDetails) {
+    signalDetails.innerHTML = `
+      <div class="signal-time">${new Date(signal.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</div>
+      ${signal.entry_price ? `<div class="signal-entry">Entry: ₹${signal.entry_price.toFixed(2)}</div>` : ''}
+      ${signal.target ? `<div class="signal-target">Target: ₹${signal.target.toFixed(2)}</div>` : ''}
+      ${signal.sl ? `<div class="signal-stop">SL: ₹${signal.sl.toFixed(2)}</div>` : ''}
+      ${signal.profit_loss ? `<div class="signal-pnl ${signal.profit_loss > 0 ? 'profit' : 'loss'}">P&L: ₹${signal.profit_loss.toLocaleString()}</div>` : ''}
+    `;
+  }
+}
+
+// Render Active Positions
+function renderActiveSignals(signals) {
+  const positionsList = document.getElementById('active-positions');
+  if (!positionsList) return;
+
+  // Clear existing positions
+  positionsList.innerHTML = '';
+
+  if (!signals || signals.length === 0) {
+    positionsList.innerHTML = '<div class="no-positions">No active positions</div>';
+    return;
+  }
+
+  // Filter active signals (not TARGET_HIT or SL_HIT)
+  const activeSignals = signals.filter(s => !s.profit_loss);
+
+  if (activeSignals.length === 0) {
+    positionsList.innerHTML = '<div class="no-positions">No active positions</div>';
+    return;
+  }
+
+  // Render active positions
+  activeSignals.forEach(signal => {
+    const positionDiv = document.createElement('div');
+    positionDiv.className = 'position-item';
+    positionDiv.innerHTML = `
+      <div class="position-type ${signal.buy_recommendation.toLowerCase().replace('_', '-')}">${signal.buy_recommendation}</div>
+      <div class="position-details">
+        <div class="position-entry">Entry: ₹${signal.entry_price?.toFixed(2) || 'N/A'}</div>
+        <div class="position-target">Target: ₹${signal.target?.toFixed(2) || 'N/A'}</div>
+        <div class="position-sl">SL: ₹${signal.sl?.toFixed(2) || 'N/A'}</div>
+      </div>
+    `;
+    positionsList.appendChild(positionDiv);
+  });
+}
+
+// Render Recent Signals
+function renderRecentSignals(signals) {
+  const signalsList = document.getElementById('recent-signals');
+  if (!signalsList) return;
+
+  // Clear existing signals
+  signalsList.innerHTML = '';
+
+  if (!signals || signals.length === 0) {
+    signalsList.innerHTML = '<div class="no-signals">No recent signals</div>';
+    return;
+  }
+
+  // Show last 5 signals
+  const recentSignals = signals.slice(0, 5);
+
+  recentSignals.forEach(signal => {
+    const signalDiv = document.createElement('div');
+    signalDiv.className = `signal-item ${signal.buy_recommendation?.toLowerCase().replace('_', '-') || 'neutral'}`;
+
+    const time = new Date(signal.timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    signalDiv.innerHTML = `
+      <div class="signal-time">${time}</div>
+      <div class="signal-type">${signal.buy_recommendation || 'N/A'}</div>
+      <div class="signal-outcome ${signal.profit_loss ? (signal.profit_loss > 0 ? 'profit' : 'loss') : 'active'}">
+        ${signal.profit_loss ? `₹${signal.profit_loss.toLocaleString()}` : 'Active'}
+      </div>
+    `;
+
+    signalsList.appendChild(signalDiv);
+  });
 }
 
 // Legacy functions for backward compatibility

@@ -21,16 +21,71 @@
 
   <!-- Main Content -->
   <div class="main-content">
-    <!-- Left Panel - Market Data -->
+    <!-- Left Panel - Market Data & Options -->
     <div class="left-panel">
       <div class="panel-header">
-        <h3>Market Updates</h3>
+        <h3>Market Overview</h3>
         <div class="panel-actions">
-          <button class="action-btn" id="clear-btn" title="Clear">×</button>
+          <button class="action-btn" id="clear-btn" title="Refresh">⟳</button>
         </div>
       </div>
+
+      <!-- NIFTY & Future Data -->
+      <div class="market-overview">
+        <div class="market-item">
+          <div class="market-symbol">NIFTY 50</div>
+          <div class="market-price" id="nifty-price">Loading...</div>
+          <div class="market-change" id="nifty-change"></div>
+        </div>
+        <div class="market-item">
+          <div class="market-symbol">NIFTY FUT</div>
+          <div class="market-price" id="future-price">Loading...</div>
+          <div class="market-change" id="future-change"></div>
+        </div>
+      </div>
+
+      <!-- Cash Flow Section -->
+      <div class="cash-flow-section">
+        <div class="section-header">
+          <h4>Options Cash Flow</h4>
+        </div>
+        <div class="cash-metrics">
+          <div class="cash-item current">
+            <div class="cash-label">Current Cash</div>
+            <div class="cash-value" id="current-cash">₹0.00</div>
+          </div>
+          <div class="cash-item min">
+            <div class="cash-label">Min Cash</div>
+            <div class="cash-value" id="min-cash">₹0.00</div>
+          </div>
+          <div class="cash-item max">
+            <div class="cash-label">Max Cash</div>
+            <div class="cash-value" id="max-cash">₹0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ITM Options Section -->
+      <div class="itm-options-section">
+        <div class="section-header">
+          <h4>1st ITM Options</h4>
+        </div>
+        <div class="options-grid">
+          <div class="option-item ce">
+            <div class="option-type">CE</div>
+            <div class="option-strike" id="itm-ce-strike">-</div>
+            <div class="option-price" id="itm-ce-price">-</div>
+          </div>
+          <div class="option-item pe">
+            <div class="option-type">PE</div>
+            <div class="option-strike" id="itm-pe-strike">-</div>
+            <div class="option-price" id="itm-pe-price">-</div>
+          </div>
+        </div>
+      </div>
+
       <div class="market-feed" id="market-feed">
-        <!-- Market updates will appear here -->
+        <!-- Signal updates will appear here -->
       </div>
     </div>
 
@@ -40,6 +95,7 @@
       <div class="card">
         <div class="card-header">
           <h4>NIFTY 50 Trend</h4>
+          <div class="trend-indicator" id="trend-indicator">NEUTRAL</div>
         </div>
         <div class="card-content">
           <div class="trend-display" id="trend-display">
@@ -49,58 +105,39 @@
         </div>
       </div>
 
-      <!-- NEW: Cash Flow Card -->
+      <!-- Buy Signal Card -->
       <div class="card">
         <div class="card-header">
-          <h4>Options Cash Flow</h4>
+          <h4>Latest Buy Signal</h4>
         </div>
         <div class="card-content">
-          <div class="pnl-grid" id="cash-flow-display">
-            <div class="pnl-item">
-              <div class="pnl-label">Min Cash</div>
-              <div class="pnl-value" id="min-cash">₹0</div>
-            </div>
-            <div class="pnl-item">
-              <div class="pnl-label">Current Cash</div>
-              <div class="pnl-value net" id="current-cash">₹0</div>
-            </div>
-            <div class="pnl-item">
-              <div class="pnl-label">Max Cash</div>
-              <div class="pnl-value" id="max-cash">₹0</div>
-            </div>
+          <div class="signal-display" id="signal-display">
+            <div class="signal-text">No active signals</div>
+            <div class="signal-details" id="signal-details"></div>
           </div>
         </div>
       </div>
 
-      <!-- Signal Card -->
+      <!-- Active Positions Card -->
       <div class="card">
         <div class="card-header">
-          <h4>Active Signals</h4>
+          <h4>Active Positions</h4>
         </div>
-        <div class="card-content" id="active-signals-display">
-          <div class="signal-text">No active signals</div>
+        <div class="card-content">
+          <div class="positions-list" id="active-positions">
+            <div class="no-positions">No active positions</div>
+          </div>
         </div>
       </div>
 
-      <!-- P&L Card -->
+      <!-- Recent Signals -->
       <div class="card">
         <div class="card-header">
-          <h4>Today's P&L</h4>
+          <h4>Recent Signals</h4>
         </div>
         <div class="card-content">
-          <div class="pnl-grid">
-            <div class="pnl-item">
-              <div class="pnl-label">Profit</div>
-              <div class="pnl-value profit" id="profit">₹0</div>
-            </div>
-            <div class="pnl-item">
-              <div class="pnl-label">Loss</div>
-              <div class="pnl-value loss" id="loss">₹0</div>
-            </div>
-            <div class="pnl-item">
-              <div class="pnl-label">Net</div>
-              <div class="pnl-value net" id="net">₹0</div>
-            </div>
+          <div class="signals-list" id="recent-signals">
+            <div class="no-signals">No recent signals</div>
           </div>
         </div>
       </div>
@@ -108,5 +145,3 @@
   </div>
 </div>
 {% endblock %}
-
-
