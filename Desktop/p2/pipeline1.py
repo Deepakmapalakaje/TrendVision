@@ -12,20 +12,22 @@ import signal
 from collections import deque
 import sqlite3
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 import threading
 import pandas as pd
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
 
+# Load environment variables
 load_dotenv()
 
+# Import protobuf message definitions
 import MarketDataFeedV3_pb2 as pb
 
 # --- Constants and Configurations ---
 CONFIG_PATH = 'config/config.json'
-TRADING_DB = os.getenv('TRADING_DB', 'database/upstox_v3_live_trading.db')
+TRADING_DB = os.getenv('DATABASE_PATH', 'database/upstox_v3_live_trading.db')
 UPSTOX_V3_AUTH_URL = "https://api.upstox.com/v3/feed/market-data-feed/authorize"
 
 # --- Logging Setup ---
@@ -61,16 +63,24 @@ class LiveTick:
     vtt: Optional[float] = None
     option_type: Optional[str] = None
 
+@dataclass
+class HeikinAshiCandle:
+    open: float
+    high: float
+    low: float
+    close: float
+    timestamp: datetime
+    instrument_key: str
+
 # --- Database Manager ---
 class LockFreeDatabaseManager:
     def __init__(self):
         self.live_db_path = TRADING_DB
         self.running = True
         self.queues = {
-            'cash_flow': deque(),
-            'buy_signal': deque(),
-            'option_tracking': deque(),
-            'latest_instrument': deque()
+            'nifty_1min': deque(), 'nifty_5min': deque(),
+            'future_1min': deque(), 'future_5min': deque(),
+            'cash_flow': deque(), 'buy_signal': deque()
         }
         self._queue_lock = threading.Lock()
         self._initialize_database()
@@ -84,33 +94,14 @@ class LockFreeDatabaseManager:
             with sqlite3.connect(self.live_db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute("PRAGMA journal_mode = WAL")
-                cursor.execute('''
-                CREATE TABLE IF NOT EXISTS options_cash_flow (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL UNIQUE,
-                    cash REAL NOT NULL, min_cash REAL NOT NULL, max_cash REAL NOT NULL
-                );
-                ''')
-                cursor.execute('''
-                CREATE TABLE IF NOT EXISTS buy_signals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL, signal_type TEXT NOT NULL, option_key TEXT NOT NULL,
-                    entry_price REAL NOT NULL, target REAL NOT NULL, sl REAL NOT NULL, status TEXT NOT NULL
-                );
-                ''')
-                cursor.execute('''
-                CREATE TABLE IF NOT EXISTS option_tracking (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, signal_id INTEGER REFERENCES buy_signals(id),
-                    timestamp TEXT NOT NULL, current_price REAL NOT NULL, pnl REAL NOT NULL, status TEXT NOT NULL
-                );
-                ''')
-                cursor.execute('''
-                CREATE TABLE IF NOT EXISTS latest_instrument_data (
-                    instrument_key TEXT PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    ltp REAL NOT NULL
-                );
-                ''')
+                # Candle Tables
+                cursor.execute('''CREATE TABLE IF NOT EXISTS nifty_candles_1min (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL UNIQUE, open REAL, high REAL, low REAL, close REAL, ha_open REAL, ha_high REAL, ha_low REAL, ha_close REAL, sar REAL, trend INTEGER, volume INTEGER, tick_count INTEGER);''')
+                cursor.execute('''CREATE TABLE IF NOT EXISTS nifty_candles_5min (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL UNIQUE, open REAL, high REAL, low REAL, close REAL, ha_open REAL, ha_high REAL, ha_low REAL, ha_close REAL, sar REAL, trend INTEGER, volume INTEGER, tick_count INTEGER);''')
+                cursor.execute('''CREATE TABLE IF NOT EXISTS future_candles_1min (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL UNIQUE, open REAL, high REAL, low REAL, close REAL, ha_open REAL, ha_high REAL, ha_low REAL, ha_close REAL, sar REAL, trend INTEGER, delta REAL, volume INTEGER, tick_count INTEGER);''')
+                cursor.execute('''CREATE TABLE IF NOT EXISTS future_candles_5min (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL UNIQUE, open REAL, high REAL, low REAL, close REAL, ha_open REAL, ha_high REAL, ha_low REAL, ha_close REAL, sar REAL, trend INTEGER, delta REAL, volume INTEGER, tick_count INTEGER);''')
+                # Cash Flow & Signal Tables
+                cursor.execute('''CREATE TABLE IF NOT EXISTS options_cash_flow (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL UNIQUE, cash REAL, min_cash REAL, max_cash REAL);''')
+                cursor.execute('''CREATE TABLE IF NOT EXISTS buy_signals (id INTEGER PRIMARY KEY, timestamp TEXT, signal_type TEXT, option_key TEXT, entry_price REAL, target REAL, sl REAL, status TEXT);''')
                 logger.info("Database schema verified/initialized.")
         except Exception as e:
             logger.critical(f"FATAL: Failed to initialize database: {e}", exc_info=True)
@@ -131,27 +122,14 @@ class LockFreeDatabaseManager:
                     if not batches:
                         time.sleep(0.05)
                         continue
-                    
                     cursor = conn.cursor()
-                    if 'cash_flow' in batches:
-                        cursor.executemany('INSERT OR REPLACE INTO options_cash_flow (timestamp, cash, min_cash, max_cash) VALUES (?, ?, ?, ?)', 
-                                            [(d['timestamp'], d['cash'], d['min_cash'], d['max_cash']) for d in batches['cash_flow']])
-                    if 'buy_signal' in batches:
-                        cursor.executemany('INSERT INTO buy_signals (timestamp, signal_type, option_key, entry_price, target, sl, status) VALUES (?, ?, ?, ?, ?, ?, ?)', 
-                                            [(d['timestamp'], d['signal_type'], d['option_key'], d['entry_price'], d['target'], d['sl'], d['status']) for d in batches['buy_signal']])
-                    if 'option_tracking' in batches:
-                        cursor.executemany('INSERT INTO option_tracking (signal_id, timestamp, current_price, pnl, status) VALUES (?, ?, ?, ?, ?)', 
-                                            [(d['signal_id'], d['timestamp'], d['current_price'], d['pnl'], d['status']) for d in batches['option_tracking']])
-                    if 'latest_instrument' in batches:
-                        cursor.executemany('INSERT OR REPLACE INTO latest_instrument_data (instrument_key, timestamp, ltp) VALUES (?, ?, ?)', 
-                                            [(d['instrument_key'], d['timestamp'], d['ltp']) for d in batches['latest_instrument']])
+                    if 'nifty_1min' in batches: cursor.executemany('INSERT OR REPLACE INTO nifty_candles_1min VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)', [tuple(d.values()) for d in batches['nifty_1min']])
+                    if 'nifty_5min' in batches: cursor.executemany('INSERT OR REPLACE INTO nifty_candles_5min VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)', [tuple(d.values()) for d in batches['nifty_5min']])
+                    if 'future_1min' in batches: cursor.executemany('INSERT OR REPLACE INTO future_candles_1min VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [tuple(d.values()) for d in batches['future_1min']])
+                    if 'future_5min' in batches: cursor.executemany('INSERT OR REPLACE INTO future_candles_5min VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [tuple(d.values()) for d in batches['future_5min']])
+                    if 'cash_flow' in batches: cursor.executemany('INSERT OR REPLACE INTO options_cash_flow VALUES (NULL,?,?,?,?)', [(d['timestamp'], d['cash'], d['min_cash'], d['max_cash']) for d in batches['cash_flow']])
+                    if 'buy_signal' in batches: cursor.executemany('INSERT INTO buy_signals VALUES (NULL,?,?,?,?,?,?,?)', [(d['timestamp'], d['signal_type'], d['option_key'], d['entry_price'], d['target'], d['sl'], d['status']) for d in batches['buy_signal']])
                     conn.commit()
-                except sqlite3.OperationalError as e:
-                    if "database is locked" in str(e):
-                        logger.warning("Database is locked, retrying...")
-                        time.sleep(0.5)
-                    else:
-                        logger.error(f"DB Error: {e}", exc_info=True)
                 except Exception as e:
                     logger.error(f"Exception in DB writer: {e}", exc_info=True)
         logger.info("DB writer thread terminated.")
@@ -163,10 +141,104 @@ class LockFreeDatabaseManager:
     def shutdown(self):
         logger.info("Shutting down database manager...")
         self.running = False
-        if self.db_thread.is_alive():
-            self.db_thread.join(timeout=5)
+        if self.db_thread.is_alive(): self.db_thread.join(timeout=5)
 
 # --- Core Logic Classes ---
+class HeikinAshiCalculator:
+    def __init__(self):
+        self.previous_ha: Optional[HeikinAshiCandle] = None
+    def calculate(self, ohlc: Dict) -> HeikinAshiCandle:
+        if self.previous_ha is None:
+            ha_open = (ohlc['open'] + ohlc['close']) / 2
+        else:
+            ha_open = (self.previous_ha.open + self.previous_ha.close) / 2
+        ha_close = (ohlc['open'] + ohlc['high'] + ohlc['low'] + ohlc['close']) / 4
+        ha_high = max(ohlc['high'], ha_open, ha_close)
+        ha_low = min(ohlc['low'], ha_open, ha_close)
+        ha_candle = HeikinAshiCandle(open=ha_open, high=ha_high, low=ha_low, close=ha_close, timestamp=ohlc['timestamp'], instrument_key=ohlc['instrument_key'])
+        self.previous_ha = ha_candle
+        return ha_candle
+
+class FastSAR:
+    def __init__(self, acceleration=0.02, maximum=0.2):
+        self.acceleration = acceleration
+        self.maximum = maximum
+        self.reset()
+    def reset(self):
+        self.sar: Optional[float] = None
+        self.trend: Optional[int] = None
+        self.af = self.acceleration
+        self.ep: Optional[float] = None
+    def update(self, high: float, low: float) -> Optional[float]:
+        if self.sar is None:
+            self.sar = low
+            self.trend = 1
+            self.ep = high
+            return self.sar
+        new_sar = self.sar + self.af * (self.ep - self.sar)
+        if self.trend == 1:
+            if low <= new_sar:
+                self.trend = -1; self.sar = self.ep; self.ep = low; self.af = self.acceleration
+            else:
+                self.sar = new_sar
+                if high > self.ep: self.ep = high; self.af = min(self.af + self.acceleration, self.maximum)
+        else:
+            if high >= new_sar:
+                self.trend = 1; self.sar = self.ep; self.ep = high; self.af = self.acceleration
+            else:
+                self.sar = new_sar
+                if low < self.ep: self.ep = low; self.af = min(self.af + self.acceleration, self.maximum)
+        return self.sar
+
+class CandleAggregator:
+    def __init__(self, instrument_key: str, interval_minutes: int, db_manager: LockFreeDatabaseManager, is_future: bool = False):
+        self.instrument_key = instrument_key
+        self.interval_minutes = interval_minutes
+        self.db_manager = db_manager
+        self.is_future = is_future
+        self.current_candle: Optional[Dict] = None
+        self.ha_calculator = HeikinAshiCalculator()
+        self.sar_calculator = FastSAR()
+        self.last_vtt = 0.0
+        self.delta = 0.0
+
+    def process_tick(self, tick: LiveTick):
+        minute = (tick.timestamp.minute // self.interval_minutes) * self.interval_minutes
+        minute_timestamp = tick.timestamp.replace(minute=minute, second=0, microsecond=0)
+        if self.current_candle is None or self.current_candle['timestamp'] != minute_timestamp:
+            if self.current_candle: self._finalize_candle()
+            self._start_new_candle(tick, minute_timestamp)
+        else:
+            self._update_candle(tick)
+
+    def _start_new_candle(self, tick: LiveTick, timestamp: datetime):
+        self.current_candle = {'timestamp': timestamp, 'open': tick.ltp, 'high': tick.ltp, 'low': tick.ltp, 'close': tick.ltp, 'volume': 0, 'tick_count': 1, 'instrument_key': tick.instrument_key}
+        if self.is_future: self.delta = 0.0; self.last_vtt = tick.vtt or 0.0
+
+    def _update_candle(self, tick: LiveTick):
+        if self.current_candle:
+            self.current_candle['high'] = max(self.current_candle['high'], tick.ltp)
+            self.current_candle['low'] = min(self.current_candle['low'], tick.ltp)
+            self.current_candle['close'] = tick.ltp
+            self.current_candle['tick_count'] += 1
+            if self.is_future and tick.vtt and self.last_vtt > 0:
+                vtt_change = tick.vtt - self.last_vtt
+                if vtt_change > 0:
+                    ltp_change = tick.ltp - self.current_candle['close']
+                    if ltp_change > 0: self.delta += vtt_change
+                    elif ltp_change < 0: self.delta -= vtt_change
+                    self.current_candle['volume'] += vtt_change
+                self.last_vtt = tick.vtt
+
+    def _finalize_candle(self):
+        if not self.current_candle: return
+        ha_candle = self.ha_calculator.calculate(self.current_candle)
+        sar_value = self.sar_calculator.update(self.current_candle['high'], self.current_candle['low'])
+        table_name = f"{'future' if self.is_future else 'nifty'}_candles_{self.interval_minutes}min"
+        candle_data = {'timestamp': self.current_candle['timestamp'].isoformat(), 'open': self.current_candle['open'], 'high': self.current_candle['high'], 'low': self.current_candle['low'], 'close': self.current_candle['close'], 'ha_open': ha_candle.open, 'ha_high': ha_candle.high, 'ha_low': ha_candle.low, 'ha_close': ha_candle.close, 'sar': sar_value, 'trend': self.sar_calculator.trend, 'volume': self.current_candle['volume'], 'tick_count': self.current_candle['tick_count']}
+        if self.is_future: candle_data['delta'] = self.delta
+        self.db_manager.save_data(table_name, candle_data)
+
 class OptionsTickCashFlowCalculator:
     def __init__(self):
         self.cash = 0.0
@@ -200,130 +272,65 @@ class OptionsTickCashFlowCalculator:
             self.min_cash, self.max_cash = self.cash, self.cash
             return state
 
-class BuySignalGenerator:
-    def __init__(self, db_manager: LockFreeDatabaseManager, tracker: 'OptionTracker'):
-        self.db_manager = db_manager
-        self.tracker = tracker
+class LockFreeTickProcessor:
+    def __init__(self, instrument_key: str, config: Dict, db_manager: LockFreeDatabaseManager, cash_flow_calculator: Optional[OptionsTickCashFlowCalculator]):
+        self.instrument_key = instrument_key
+        self.instrument_type = config.get('type')
+        self.option_type = config.get('option_type')
+        self.cash_flow_calculator = cash_flow_calculator
+        self.ltp = 0.0
+        if self.instrument_type != 'OPTION':
+            self.candle_1min = CandleAggregator(instrument_key, 1, db_manager, self.instrument_type == 'FUTURE')
+            self.candle_5min = CandleAggregator(instrument_key, 5, db_manager, self.instrument_type == 'FUTURE')
 
-    def generate_signals(self, cash: float, nifty_price: float):
-        if self.tracker.has_active_position(): return
-        
-        option_to_buy = None
-        signal_type = None
-        if cash > 500000: # Threshold to generate a signal
-            option_to_buy = self._get_first_itm_option('CE', nifty_price)
-            signal_type = 'BUY_CE'
-        elif cash < -500000:
-            option_to_buy = self._get_first_itm_option('PE', nifty_price)
-            signal_type = 'BUY_PE'
-        
-        if option_to_buy and option_to_buy['key'] in processors:
-            entry_price = processors[option_to_buy['key']].get_ltp()
-            if entry_price > 0:
-                signal = {
-                    'timestamp': datetime.now(IST).isoformat(), 'signal_type': signal_type, 'option_key': option_to_buy['key'],
-                    'entry_price': entry_price, 'target': entry_price * 1.2, 'sl': entry_price * 0.8,
-                    'status': 'ACTIVE'
-                }
-                self.db_manager.save_data('buy_signal', signal)
-                self.tracker.start_tracking(signal)
-                logger.info(f"ACTION: {signal_type} for {option_to_buy['symbol']} at {entry_price:.2f}")
+    def process_tick(self, feed: Dict):
+        try:
+            ltpc = feed.get('ff', {}).get('marketFF', {}).get('ltpc') or feed.get('ff', {}).get('indexFF', {}).get('ltpc') or feed.get('ltpc', {})
+            if not ltpc or ltpc.get('ltp') is None: return
+            tick = LiveTick(instrument_key=self.instrument_key, ltp=ltpc['ltp'], timestamp=datetime.fromtimestamp(int(ltpc['ltt']) / 1000, tz=IST), vtt=feed.get('ff', {}).get('marketFF', {}).get('vtt'), option_type=self.option_type)
+            self.ltp = tick.ltp
+            if self.instrument_type == 'OPTION':
+                if self.cash_flow_calculator: self.cash_flow_calculator.process_option_tick(tick)
+            else:
+                self.candle_1min.process_tick(tick)
+                self.candle_5min.process_tick(tick)
+        except Exception as e:
+            logger.error(f"Error processing tick for {self.instrument_key}: {e}", exc_info=True)
 
-    def _get_first_itm_option(self, option_type: str, nifty_price: float) -> Optional[Dict]:
-        options = [v for v in INSTRUMENTS.values() if v.get('type') == 'OPTION' and v.get('option_type') == option_type]
-        if not options: return None
-        if option_type == 'CE':
-            options = [o for o in options if o['strike_price'] < nifty_price]
-            return max(options, key=lambda x: x['strike_price']) if options else None
-        else: # PE
-            options = [o for o in options if o['strike_price'] > nifty_price]
-            return min(options, key=lambda x: x['strike_price']) if options else None
-
-class OptionTracker:
-    def __init__(self, db_manager: LockFreeDatabaseManager):
-        self.db_manager = db_manager
-        self.active_trade: Optional[Dict] = None
-        self.lock = threading.Lock()
-
-    def has_active_position(self) -> bool:
-        with self.lock:
-            return self.active_trade is not None
-
-    def start_tracking(self, signal: Dict):
-        with self.lock:
-            if not self.active_trade:
-                self.active_trade = signal
-                logger.info(f"TRACKING STARTED for {signal['option_key']}")
-
-    def check_position(self):
-        with self.lock:
-            if not self.active_trade: return
-            
-            key = self.active_trade['option_key']
-            if key not in processors: return
-
-            ltp = processors[key].get_ltp()
-            if ltp <= 0: return
-
-            status = ''
-            if ltp >= self.active_trade['target']:
-                status = 'TARGET_HIT'
-            elif ltp <= self.active_trade['sl']:
-                status = 'SL_HIT'
-            
-            if status:
-                pnl = (ltp - self.active_trade['entry_price']) * 50 # Assuming lot size 50
-                logger.info(f"ACTION: {status} for {key}. P&L: {pnl:.2f}")
-                self.db_manager.save_data('option_tracking', {
-                    'signal_id': self.active_trade.get('id', -1), # Requires getting ID after insert
-                    'timestamp': datetime.now(IST).isoformat(),
-                    'current_price': ltp, 'pnl': pnl, 'status': status
-                })
-                self.active_trade = None # Stop tracking
+    def get_ltp(self) -> float:
+        return self.ltp
 
 # --- Main Application Logic ---
-async def minute_aggregator_task(cash_flow_calculator, buy_signal_generator, tracker):
+async def minute_aggregator_task(cash_flow_calculator, buy_signal_generator):
     logger.info("Minute aggregator task started.")
     while not shutdown_event.is_set():
         await asyncio.sleep(60 - time.time() % 60)
         now = datetime.now(IST)
         if not (MARKET_START_TIME <= now.time() < MARKET_END_TIME):
             continue
-        
         cash_flow_state = cash_flow_calculator.get_state_and_reset()
-        db_manager.save_data('cash_flow', {
-            'timestamp': now.replace(second=0, microsecond=0).isoformat(),
-            **cash_flow_state
-        })
+        db_manager.save_data('cash_flow', {'timestamp': now.replace(second=0, microsecond=0).isoformat(), **cash_flow_state})
         logger.info(f"1-Min Cash Flow: {cash_flow_state['cash']:.2f}")
-
         nifty_processor = processors.get(INSTRUMENTS["NIFTY_INDEX"]["key"])
         if nifty_processor and nifty_processor.get_ltp() > 0:
             buy_signal_generator.generate_signals(cash_flow_state['cash'], nifty_processor.get_ltp())
-        
-        tracker.check_position()
 
 async def websocket_v3_connection_manager():
     global db_manager, processors, ACCESS_TOKEN
-    
     while not ACCESS_TOKEN:
-        logger.error("Access token not found in config. Retrying in 10s...")
+        logger.error("Access token not found. Retrying in 10s...")
         await asyncio.sleep(10)
         config = load_config()
         ACCESS_TOKEN = config.get('ACCESS_TOKEN', '')
 
     db_manager = LockFreeDatabaseManager()
     cash_flow_calculator = OptionsTickCashFlowCalculator()
-    tracker = OptionTracker(db_manager)
-    buy_signal_generator = BuySignalGenerator(db_manager, tracker)
+    buy_signal_generator = BuySignalGenerator(db_manager)
 
     for name, config_item in INSTRUMENTS.items():
-        is_option = config_item.get('type') == 'OPTION'
-        processors[config_item["key"]] = LockFreeTickProcessor(
-            config_item["key"], config_item, db_manager, cash_flow_calculator if is_option else None
-        )
+        processors[config_item["key"]] = LockFreeTickProcessor(config_item["key"], config_item, db_manager, cash_flow_calculator if config_item.get('type') == 'OPTION' else None)
 
-    aggregator = asyncio.create_task(minute_aggregator_task(cash_flow_calculator, buy_signal_generator, tracker))
+    aggregator = asyncio.create_task(minute_aggregator_task(cash_flow_calculator, buy_signal_generator))
 
     ws_url = get_market_data_feed_authorize_v3()['data']['authorized_redirect_uri']
     ssl_context = ssl.create_default_context()
@@ -341,8 +348,7 @@ async def websocket_v3_connection_manager():
                     decoded_data = decode_v3_message(message)
                     if decoded_data and 'feeds' in decoded_data:
                         for key, feed in decoded_data['feeds'].items():
-                            if key in processors:
-                                processors[key].process_tick(feed)
+                            if key in processors: processors[key].process_tick(feed)
         except (websockets.ConnectionClosed, ConnectionRefusedError) as e:
             logger.warning(f"WebSocket connection closed: {e}. Reconnecting in 5s...")
             await asyncio.sleep(5)
@@ -354,50 +360,6 @@ async def websocket_v3_connection_manager():
     db_manager.shutdown()
 
 # --- Helper & Entry Point ---
-class LockFreeTickProcessor:
-    def __init__(self, instrument_key: str, config: Dict, db_manager: LockFreeDatabaseManager, cash_flow_calculator: Optional[OptionsTickCashFlowCalculator]):
-        self.instrument_key = instrument_key
-        self.config = config
-        self.db_manager = db_manager
-        self.instrument_type = config.get('type')
-        self.option_type = config.get('option_type')
-        self.cash_flow_calculator = cash_flow_calculator
-        self.ltp = 0.0
-        self.vtt = 0.0
-        self.previous_tick: Optional[LiveTick] = None
-
-    def process_tick(self, feed: Dict):
-        try:
-            ltpc = feed.get('ff', {}).get('marketFF', {}).get('ltpc') or feed.get('ff', {}).get('indexFF', {}).get('ltpc') or feed.get('ltpc', {})
-            if not ltpc: return
-
-            ltp = ltpc.get('ltp')
-            if ltp is None: return
-
-            self.ltp = ltp
-            tick = LiveTick(
-                instrument_key=self.instrument_key, ltp=ltp, 
-                timestamp=datetime.fromtimestamp(int(ltpc['ltt']) / 1000, tz=IST),
-                vtt=feed.get('ff', {}).get('marketFF', {}).get('vtt'),
-                option_type=self.option_type
-            )
-            if self.instrument_type == 'OPTION' and self.cash_flow_calculator:
-                self.cash_flow_calculator.process_option_tick(tick)
-            
-            if self.instrument_type != 'OPTION':
-                self.db_manager.save_data('latest_instrument', {
-                    'instrument_key': self.instrument_key,
-                    'timestamp': tick.timestamp.isoformat(),
-                    'ltp': tick.ltp
-                })
-
-            self.previous_tick = tick
-        except Exception as e:
-            logger.error(f"Error processing tick for {self.instrument_key}: {e}", exc_info=True)
-
-    def get_ltp(self) -> float:
-        return self.ltp
-
 def get_market_data_feed_authorize_v3() -> Dict:
     headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
     try:
@@ -412,14 +374,43 @@ def create_v3_subscription_message(keys: List[str], mode: str) -> bytes:
     return json.dumps({"guid": "trendvision-v3", "method": "sub", "data": {"mode": mode, "instrumentKeys": keys}}).encode('utf-8')
 
 def decode_v3_message(data: bytes) -> Optional[Dict]:
+    try: return MessageToDict(pb.FeedResponse.FromString(data))
+    except Exception: 
+        try: return json.loads(data.decode('utf-8'))
+        except Exception as e: logger.error(f"Failed to decode message: {e}"); return None
+
+def load_config():
     try:
-        return MessageToDict(pb.FeedResponse.FromString(data))
-    except Exception:
-        try:
-            return json.loads(data.decode('utf-8'))
-        except Exception as e:
-            logger.error(f"Failed to decode message: {e}")
-            return None
+        with open(CONFIG_PATH, 'r') as f: return json.load(f)
+    except FileNotFoundError: logger.error(f"Config file not found: {CONFIG_PATH}"); return {}
+    except json.JSONDecodeError as e: logger.error(f"Invalid JSON in config file: {e}"); return {}
+
+def load_options_from_csv(csv_path='extracted_data.csv'):
+    try:
+        df = pd.read_csv(csv_path)
+        all_strikes = sorted(df['strike'].unique(), key=float)
+        ce_options = df[df['option_type'] == 'CE']
+        pe_options = df[df['option_type'] == 'PE']
+        common_strikes = list(set(ce_options['strike']) & set(pe_options['strike']))
+        if common_strikes:
+            atm_strike = min(common_strikes, key=lambda s: abs(ce_options[ce_options['strike'] == s]['last_price'].values[0] - pe_options[pe_options['strike'] == s]['last_price'].values[0]))
+        else:
+            atm_strike = sorted(common_strikes, key=float)[len(common_strikes) // 2] if common_strikes else 25000.0
+        current_level = round(float(atm_strike) / 50) * 50
+        if float(current_level) in all_strikes: center_index = all_strikes.index(float(current_level))
+        else: center_index = min(range(len(all_strikes)), key=lambda i: abs(all_strikes[i] - float(current_level)))
+        ce_itm_strikes = [all_strikes[i] for i in range(center_index - 1, -1, -1) if df[(df['option_type'] == 'CE') & (df['strike'] == all_strikes[i])].shape[0] > 0][:15]
+        ce_otm_strikes = [all_strikes[i] for i in range(center_index + 1, len(all_strikes)) if df[(df['option_type'] == 'CE') & (df['strike'] == all_strikes[i])].shape[0] > 0][:15]
+        pe_otm_strikes = [all_strikes[i] for i in range(center_index - 1, -1, -1) if df[(df['option_type'] == 'PE') & (df['strike'] == all_strikes[i])].shape[0] > 0][:15]
+        pe_itm_strikes = [all_strikes[i] for i in range(center_index + 1, len(all_strikes)) if df[(df['option_type'] == 'PE') & (df['strike'] == all_strikes[i])].shape[0] > 0][:15]
+        ce_selected = df[(df['option_type'] == 'CE') & (df['strike'].isin(ce_itm_strikes + ce_otm_strikes))]
+        pe_selected = df[(df['option_type'] == 'PE') & (df['strike'].isin(pe_itm_strikes + pe_otm_strikes))]
+        selected = pd.concat([ce_selected, pe_selected]).sort_values(['option_type', 'strike'])
+        options_list = [{ 'key': row['instrument_key'], 'symbol': row['symbol'], 'option_type': row['option_type'], 'strike_price': float(row['strike']), 'expiry': row.get('expiry', ''), 'last_price': float(row.get('last_price', 0))} for _, row in selected.iterrows()]
+        logger.info(f"Loaded {len(options_list)} options from CSV.")
+        return options_list
+    except FileNotFoundError: logger.error(f"CSV file not found: {csv_path}"); return []
+    except Exception as e: logger.error(f"Error loading options from CSV: {e}", exc_info=True); return []
 
 def main():
     global ACCESS_TOKEN, INSTRUMENTS, INSTRUMENT_KEYS
@@ -433,26 +424,14 @@ def main():
     option_instruments = {opt['symbol']: {**opt, 'type': 'OPTION'} for opt in options}
     INSTRUMENTS = {**BASE_INSTRUMENTS, **option_instruments}
     INSTRUMENT_KEYS = [v['key'] for v in INSTRUMENTS.values()]
-    
     loop = asyncio.get_event_loop()
-    def handle_shutdown_signal():
-        logger.info("Shutdown signal received.")
-        shutdown_event.set()
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, handle_shutdown_signal)
-
-    try:
-        loop.run_until_complete(websocket_v3_connection_manager())
+    def handle_shutdown_signal(): logger.info("Shutdown signal received."); shutdown_event.set()
+    for sig in (signal.SIGINT, signal.SIGTERM): loop.add_signal_handler(sig, handle_shutdown_signal)
+    try: loop.run_until_complete(websocket_v3_connection_manager())
     finally:
         loop.close()
-        if db_manager:
-            db_manager.shutdown()
+        if db_manager: db_manager.shutdown()
         logger.info("Application terminated cleanly.")
-
-def load_options_from_csv(csv_path='extracted_data.csv'):
-    # ... (implementation as before)
-    pass
 
 if __name__ == "__main__":
     main()

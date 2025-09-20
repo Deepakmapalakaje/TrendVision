@@ -1,8 +1,5 @@
 {
-  "ACCESS_TOKEN": "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI3M0FIOUMiLCJqdGkiOiI2OGNhNzg2ZjRlY2EzMjM3MjQyYzIzMDUiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzU4MDk5NTY3LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NTgxNDY0MDB9.0UXvGTtyFqz7fiE69hwjjJJv7aq2Ree3-lf3dSCMmMs",
-  "NIFTY_FUTURE_key": "NSE_FO|5001",
-  "ITM_CE_key": "NSE_FO|47723",
-  "ITM_CE_strike": 24950,
-  "ITM_PE_key": "NSE_FO|47734",
-  "ITM_PE_strike": 25000
+  "ACCESS_TOKEN": "your-daily-token-here",
+  "NIFTY_FUTURE_key": "NSE_FO|53001",
+  "DATABASE_PATH": "database/upstox_v3_live_trading.db"
 }
