@@ -33,14 +33,45 @@ function fetchAndRender() {
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
-      renderMarketFeed(d.candles);
-      renderTrend(d.trend);
-      renderPnl(d.pnl);
-      renderMarketSummary(d.market_summary);
-      renderPerformanceMetrics(d.performance_metrics);
+      renderMarketFeed(d.nifty_data); // Changed from d.candles
+      renderCashFlow(d.cash_flow);
+      renderActiveSignals(d.active_signals);
+      renderPnl(d.pnl); // Assuming PNL data is still relevant
     })
     .catch(() => {});
 }
+
+function renderCashFlow(cashFlow) {
+  if (!cashFlow) return;
+  document.getElementById('min-cash').textContent = `₹${(cashFlow.min_cash || 0).toLocaleString()}`;
+  document.getElementById('current-cash').textContent = `₹${(cashFlow.cash || 0).toLocaleString()}`;
+  document.getElementById('max-cash').textContent = `₹${(cashFlow.max_cash || 0).toLocaleString()}`;
+}
+
+function renderActiveSignals(signals) {
+  const container = document.getElementById('active-signals-display');
+  if (!signals || signals.length === 0) {
+    container.innerHTML = '<div class="signal-text">No active signals</div>';
+    return;
+  }
+
+  container.innerHTML = ''; // Clear previous signals
+  signals.forEach(signal => {
+    const signalElement = document.createElement('div');
+    signalElement.className = 'signal-item';
+    signalElement.innerHTML = `
+      <div class="signal-type ${signal.signal_type.toLowerCase()}">${signal.signal_type}</div>
+      <div class="signal-details">
+        <div>${signal.option_key}</div>
+        <div>@ ${signal.entry_price.toFixed(2)}</div>
+      </div>
+      <div class="signal-status ${signal.status.toLowerCase()}">${signal.status}</div>
+    `;
+    container.appendChild(signalElement);
+  });
+}
+
+
 
 function renderMarketFeed(candles) {
   const feed = document.getElementById('market-feed');
