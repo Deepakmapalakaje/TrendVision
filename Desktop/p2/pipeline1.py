@@ -1768,7 +1768,7 @@ class BuySignalGenerator:
                     logger.info(f"🟢 SELL CE SIGNAL: Trend -→+ | Cash: {current_cash:.0f} (near max: {max_cash:.0f})")
 
     def _generate_ce_signal(self, ce_option, cash, action_type):
-        """Generate CE signal (BUY or SELL)"""
+        """Generate CE signal and return signal data for tracking"""
         signal_data = {
             'timestamp': datetime.now(IST).isoformat(),
             'signal_type': f'{action_type}_CE',
@@ -1779,7 +1779,7 @@ class BuySignalGenerator:
             'action': action_type
         }
 
-        # Save to database
+        # Save to database and get ID
         conn = sqlite3.connect(TRADING_DB, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("""
@@ -1790,20 +1790,29 @@ class BuySignalGenerator:
             signal_data['signal_type'],
             signal_data['option_key'],
             signal_data['strike'],
-            0,  # Entry price
-            0,  # Target
-            0,  # Stop Loss
+            0,  # Entry price will be set by tracker
+            0,  # Target will be set by tracker
+            0,  # Stop Loss will be set by tracker
             signal_data['status'],
             signal_data['cash_flow']
         ))
+
+        # Get the inserted signal ID
+        signal_data['id'] = cursor.lastrowid
+
         conn.commit()
         conn.close()
 
         self.last_signal_time = datetime.now(IST)
         logger.info(f"🟢 {action_type} CE SIGNAL: {ce_option['strike']} @ Cash: {cash:.2f}")
 
+        # Return signal data for tracking (only for BUY signals)
+        if action_type == 'BUY':
+            return signal_data
+        return None
+
     def _generate_pe_signal(self, pe_option, cash, action_type):
-        """Generate PE signal (BUY or SELL)"""
+        """Generate PE signal and return signal data for tracking"""
         signal_data = {
             'timestamp': datetime.now(IST).isoformat(),
             'signal_type': f'{action_type}_PE',
@@ -1814,7 +1823,7 @@ class BuySignalGenerator:
             'action': action_type
         }
 
-        # Save to database
+        # Save to database and get ID
         conn = sqlite3.connect(TRADING_DB, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("""
@@ -1825,17 +1834,26 @@ class BuySignalGenerator:
             signal_data['signal_type'],
             signal_data['option_key'],
             signal_data['strike'],
-            0,  # Entry price
-            0,  # Target
-            0,  # Stop Loss
+            0,  # Entry price will be set by tracker
+            0,  # Target will be set by tracker
+            0,  # Stop Loss will be set by tracker
             signal_data['status'],
             signal_data['cash_flow']
         ))
+
+        # Get the inserted signal ID
+        signal_data['id'] = cursor.lastrowid
+
         conn.commit()
         conn.close()
 
         self.last_signal_time = datetime.now(IST)
         logger.info(f"🔴 {action_type} PE SIGNAL: {pe_option['strike']} @ Cash: {cash:.2f}")
+
+        # Return signal data for tracking (only for BUY signals)
+        if action_type == 'BUY':
+            return signal_data
+        return None
 
     def _check_neutral_signal_positive_to_neutral(self, current_cash, min_cash, max_cash, nifty_price):
         """Check neutral transition signal when trend changes from positive to neutral"""
@@ -2202,13 +2220,23 @@ async def websocket_v3_connection_manager():
                                                     key, tick.ltp, tick.vtt, tick.timestamp
                                                 )
 
-                        # Generate buy signals based on cash flow every minute
-                        if buy_signal_generator and cash_flow_calculator:
+                        # Generate buy signals and start option tracking
+                        if buy_signal_generator and cash_flow_calculator and option_tracker:
                             nifty_processor = processors.get(INSTRUMENTS["NIFTY_INDEX"]["key"])
                             if nifty_processor and hasattr(nifty_processor, 'current_candle') and nifty_processor.current_candle:
                                 current_nifty_price = nifty_processor.current_candle.close
-                                current_trend = nifty_processor.present_trend_1min  # Get current trend
-                                buy_signal_generator.check_and_generate_signals(current_nifty_price, current_trend)
+                                current_trend = nifty_processor.present_trend_1min
+
+                                # Generate signals (returns signal_data for BUY signals)
+                                signal_data = buy_signal_generator.check_and_generate_signals(current_nifty_price, current_trend)
+
+                                # Start tracking if buy signal was generated
+                                if signal_data and isinstance(signal_data, dict):
+                                    option_tracker.start_tracking(signal_data, signal_data['option_key'])
+
+                        # Check all active option positions for target/SL hits
+                        if option_tracker:
+                            option_tracker.check_all_positions(processors)
                         message_count += 1
                         current_time = time.time()
                         if current_time - last_stats_time > 60:

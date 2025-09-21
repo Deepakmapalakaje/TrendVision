@@ -613,6 +613,116 @@ def create_app():
             logger.error(f"Profile error: {e}")
             return redirect(url_for("dashboard"))
 
+    # --- AUTOMATED CSV API ENDPOINTS ---
+
+    @app.route("/api/fetch-instruments", methods=["POST"])
+    def api_fetch_instruments():
+        """Fetch latest instrument keys"""
+        if "user_id" not in session or session.get("role") != "admin":
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        try:
+            import subprocess
+            result = subprocess.run(['python3', 'instructionkey.py'],
+                                  capture_output=True, text=True, cwd='/opt/trendvision')
+
+            if result.returncode == 0:
+                return jsonify({"ok": True, "message": "Instruments fetched successfully"})
+            else:
+                return jsonify({"ok": False, "error": result.stderr}), 500
+
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/get-expiries")
+    def api_get_expiries():
+        """Get available expiry dates"""
+        if "user_id" not in session or session.get("role") != "admin":
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        try:
+            import pandas as pd
+            if not os.path.exists('NSE.csv'):
+                return jsonify({"ok": False, "error": "NSE.csv not found. Please fetch instruments first."})
+
+            df = pd.read_csv('NSE.csv')
+            expiries = sorted(df['expiry'].unique().tolist())
+
+            return jsonify({
+                "ok": True,
+                "expiries": expiries,
+                "latest_expiry": expiries[-1] if expiries else None
+            })
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)})
+
+    @app.route("/api/extract-options", methods=["POST"])
+    def api_extract_options():
+        """Extract options for selected expiry"""
+        if "user_id" not in session or session.get("role") != "admin":
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        try:
+            data = request.get_json()
+            expiry_date = data.get('expiry_date')
+
+            if not expiry_date:
+                return jsonify({"ok": False, "error": "Expiry date required"}), 400
+
+            import subprocess
+            result = subprocess.run(['python3', 'extract.py', expiry_date],
+                                  capture_output=True, text=True, cwd='/opt/trendvision')
+
+            if result.returncode == 0:
+                return jsonify({"ok": True, "message": f"Options extracted for {expiry_date}"})
+            else:
+                return jsonify({"ok": False, "error": result.stderr}), 500
+
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/csv-info")
+    def api_csv_info():
+        """Get current CSV file information"""
+        if "user_id" not in session or session.get("role") != "admin":
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        try:
+            csv_path = 'extracted_data.csv'
+
+            if not os.path.exists(csv_path):
+                return jsonify({
+                    "ok": True,
+                    "total_options": 0,
+                    "ce_count": 0,
+                    "pe_count": 0,
+                    "last_updated": None,
+                    "file_exists": False
+                })
+
+            # Get file info
+            file_stat = os.stat(csv_path)
+            last_updated = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+
+            # Read CSV info
+            import pandas as pd
+            df = pd.read_csv(csv_path)
+            ce_count = len(df[df['option_type'] == 'CE'])
+            pe_count = len(df[df['option_type'] == 'PE'])
+
+            return jsonify({
+                "ok": True,
+                "total_options": len(df),
+                "ce_count": ce_count,
+                "pe_count": pe_count,
+                "last_updated": last_updated,
+                "file_exists": True
+            })
+
+        except Exception as e:
+            logger.error(f"CSV info error: {e}")
+            return jsonify({"ok": False, "error": str(e)})
+
     # --- ADMIN ROUTES ---
 
     @app.route("/admin/login", methods=["GET", "POST"])
@@ -659,10 +769,27 @@ def create_app():
 
         elif request.method == "POST":
             try:
-                config = request.get_json()
+                new_config = request.get_json()
+
+                # Load existing config
+                existing_config = {}
+                if os.path.exists(config_path):
+                    with open(config_path, 'r') as f:
+                        existing_config = json.load(f)
+
+                # Update config
+                existing_config.update(new_config)
+
+                # If ACCESS_TOKEN is updated, mark today's date
+                if 'ACCESS_TOKEN' in new_config:
+                    existing_config['TOKEN_UPDATE_DATE'] = datetime.now(IST).date().isoformat()
+                    logger.info(f"✅ Access token updated for {existing_config['TOKEN_UPDATE_DATE']}")
+
+                # Save updated config
                 with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=2)
-                return jsonify({"ok": True})
+                    json.dump(existing_config, f, indent=2)
+
+                return jsonify({"ok": True, "message": "Configuration updated successfully"})
             except Exception as e:
                 return jsonify({"ok": False, "error": str(e)})
 
