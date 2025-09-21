@@ -761,7 +761,7 @@ def create_app():
 
         if request.method == "GET":
             try:
-                with open(config_path, 'r') as f:
+                with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                 return jsonify({"ok": True, "config": config})
             except Exception as e:
@@ -774,7 +774,7 @@ def create_app():
                 # Load existing config
                 existing_config = {}
                 if os.path.exists(config_path):
-                    with open(config_path, 'r') as f:
+                    with open(config_path, 'r', encoding='utf-8') as f:
                         existing_config = json.load(f)
 
                 # Update config
@@ -786,8 +786,8 @@ def create_app():
                     logger.info(f"✅ Access token updated for {existing_config['TOKEN_UPDATE_DATE']}")
 
                 # Save updated config
-                with open(config_path, 'w') as f:
-                    json.dump(existing_config, f, indent=2)
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(existing_config, f, indent=2, ensure_ascii=False)
 
                 return jsonify({"ok": True, "message": "Configuration updated successfully"})
             except Exception as e:
