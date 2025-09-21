@@ -15,12 +15,14 @@ import time
 from dataclasses import dataclass
 from typing import Optional, List, Tuple, Dict
 import threading
-from dotenv import load_dotenv
-from zoneinfo import ZoneInfo  # For IST
-import pandas as pd
-import numpy as np
+import threading
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-load_dotenv()
+from zoneinfo import ZoneInfo  # For IST
 
 # === LOGGING SETUP (MOVED UP FOR EARLY IMPORT USAGE) ===
 def setup_logging():
