@@ -22,6 +22,25 @@ import numpy as np
 
 load_dotenv()
 
+# === LOGGING SETUP (MOVED UP FOR EARLY IMPORT USAGE) ===
+def setup_logging():
+    log_format = '%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        handlers=[
+            logging.FileHandler('upstox_v3_trading.log', encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    # Fix Unicode encoding for Windows console
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, logging.StreamHandler):
+            handler.setStream(sys.stdout)
+    return logging.getLogger('UpstoxTradingV3')
+
+logger = setup_logging()
+
 # Import the V3 protobuf
 import MarketDataFeedV3_pb2 as pb
 
@@ -45,11 +64,11 @@ def auto_select_options(csv_path):
     """Auto-select 60 options based on NIFTY level rounded to nearest 50"""
     try:
         if not os.path.exists(csv_path):
-            logger.error(f"CSV file not found: {csv_path}")
+            print(f"CSV file not found: {csv_path}")
             return {}
         df = pd.read_csv(csv_path)
         if df.empty:
-            logger.error("Empty CSV file")
+            print("Empty CSV file")
             return {}
 
         # Get current NIFTY level from CSV (assume column exists)
@@ -203,25 +222,6 @@ processors = {}
 cash_flow_calculator = None  # Global cash flow calculator for 60 options
 buy_signal_generator = None  # Global buy signal generator
 option_tracker = None  # Global option tracker for specific P&L logic
-
-# === LOGGING SETUP ===
-def setup_logging():
-    log_format = '%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-    logging.basicConfig(
-        level=logging.INFO,
-        format=log_format,
-        handlers=[
-            logging.FileHandler('upstox_v3_trading.log', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    # Fix Unicode encoding for Windows console
-    for handler in logging.getLogger().handlers:
-        if isinstance(handler, logging.StreamHandler):
-            handler.setStream(sys.stdout)
-    return logging.getLogger('UpstoxTradingV3')
-
-logger = setup_logging()
 
 # === SQLite datetime adapters ===
 def adapt_datetime_iso(val):
