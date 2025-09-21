@@ -1757,6 +1757,228 @@ body {
   }
 }
 
+/* ===== CASH FLOW TRADING SYSTEM STYLES ===== */
+
+/* Cash Flow Section */
+.cash-flow-section {
+  background: var(--surface-light);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-header h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.cash-flow-tabs {
+  display: flex;
+  margin-bottom: 15px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: var(--surface-light);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9em;
+}
+
+.tab-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.tab-btn:hover {
+  background: var(--accent-light);
+}
+
+.cash-metrics {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.cash-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: var(--surface);
+  border-radius: 6px;
+  border-left: 4px solid var(--border);
+}
+
+.cash-item.current {
+  border-left-color: var(--accent);
+}
+
+.cash-item.min {
+  border-left-color: var(--danger);
+}
+
+.cash-item.max {
+  border-left-color: var(--success);
+}
+
+.cash-label {
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+.cash-value {
+  font-weight: bold;
+  font-size: 1.1em;
+  color: var(--text);
+}
+
+/* ITM Options Styles */
+.options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.option-item {
+  padding: 12px;
+  background: var(--surface);
+  border-radius: 6px;
+  text-align: center;
+  border: 2px solid var(--border);
+}
+
+.option-item.ce {
+  border-color: var(--success);
+}
+
+.option-item.pe {
+  border-color: var(--danger);
+}
+
+.option-type {
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-bottom: 4px;
+}
+
+.option-strike {
+  font-size: 1.1em;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.option-price {
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+/* Signal Styles */
+.signal-item {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85em;
+  align-items: center;
+}
+
+.signal-type.buy_ce {
+  color: var(--success);
+  font-weight: bold;
+}
+
+.signal-type.buy_pe {
+  color: var(--danger);
+  font-weight: bold;
+}
+
+.signal-cash {
+  text-align: right;
+  font-weight: bold;
+}
+
+/* Market Overview Styles */
+.market-overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.market-item {
+  padding: 12px;
+  background: var(--surface);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.market-symbol {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.market-price {
+  font-size: 1.2em;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.market-change {
+  font-size: 0.9em;
+}
+
+.market-change.positive {
+  color: var(--success);
+}
+
+.market-change.negative {
+  color: var(--danger);
+}
+
+/* Loading States */
+.loading {
+  opacity: 0.6;
+  pointer-events: none;
+  position: relative;
+}
+
+.loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid var(--accent);
+  border-top: 2px solid transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 /* Legacy styles for backward compatibility */
 .topnav{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;background:#0b1220;border-bottom:1px solid #1f2937}
 .brand{font-weight:700}.nav-actions a{color:var(--text);text-decoration:none;margin-left:16px}.nav-actions a.danger{color:var(--danger)}

@@ -65,22 +65,61 @@
         </div>
       </div>
 
+      <!-- Cash Flow Section -->
+      <div class="cash-flow-section">
+        <div class="section-header">
+          <h4>Cash Flow (Live - 1min/5min)</h4>
+        </div>
+        <div class="cash-flow-tabs">
+          <button class="tab-btn active" data-interval="1min">1 Min</button>
+          <button class="tab-btn" data-interval="5min">5 Min</button>
+        </div>
+        <div class="cash-metrics">
+          <div class="cash-item current">
+            <div class="cash-label">Current Cash</div>
+            <div class="cash-value" id="current-cash">₹0.00</div>
+          </div>
+          <div class="cash-item min">
+            <div class="cash-label">Min Cash</div>
+            <div class="cash-value" id="min-cash">₹0.00</div>
+          </div>
+          <div class="cash-item max">
+            <div class="cash-label">Max Cash</div>
+            <div class="cash-value" id="max-cash">₹0.00</div>
+          </div>
+        </div>
+      </div>
+
       <!-- ITM Options Section -->
       <div class="itm-options-section">
         <div class="section-header">
           <h4>1st ITM Options</h4>
         </div>
+        <div class="nifty-price">
+          <div class="nifty-price-label">NIFTY Price</div>
+          <div class="nifty-price-value" id="nifty-price">₹0.00</div>
+        </div>
         <div class="options-grid">
           <div class="option-item ce">
             <div class="option-type">CE</div>
             <div class="option-strike" id="itm-ce-strike">-</div>
-            <div class="option-price" id="itm-ce-price">-</div>
+            <div class="option-price" id="itm-ce-price">₹0.00</div>
           </div>
           <div class="option-item pe">
             <div class="option-type">PE</div>
             <div class="option-strike" id="itm-pe-strike">-</div>
-            <div class="option-price" id="itm-pe-price">-</div>
+            <div class="option-price" id="itm-pe-price">₹0.00</div>
           </div>
+        </div>
+      </div>
+
+      <!-- Buy Signals Section -->
+      <div class="buy-signals-section">
+        <div class="section-header">
+          <h4>Recent Buy Signals</h4>
+        </div>
+        <div class="signals-list" id="signals-list">
+          <div class="no-signals">No recent signals</div>
         </div>
       </div>
 

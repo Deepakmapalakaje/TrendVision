@@ -409,12 +409,42 @@ class LockFreeDatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 ''')
+                # Add missing tables: buy_signals and option_tracking
+                cursor.execute('''
+                CREATE TABLE IF NOT EXISTS buy_signals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    signal_type TEXT NOT NULL,
+                    option_key TEXT NOT NULL,
+                    strike REAL NOT NULL,
+                    entry_price REAL DEFAULT 0,
+                    target REAL DEFAULT 0,
+                    sl REAL DEFAULT 0,
+                    status TEXT DEFAULT 'ACTIVE',
+                    cash_flow REAL DEFAULT 0
+                );
+                ''')
+
+                cursor.execute('''
+                CREATE TABLE IF NOT EXISTS option_tracking (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    signal_id INTEGER REFERENCES buy_signals(id),
+                    timestamp TEXT NOT NULL,
+                    current_price REAL NOT NULL,
+                    pnl REAL DEFAULT 0,
+                    status TEXT NOT NULL
+                );
+                ''')
+
+                # Add indexes for performance
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON buy_signals(timestamp)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_tracking_signal_id ON option_tracking(signal_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_cash_flow_timestamp ON options_cash_flow(timestamp)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_latest_candles_instrument ON latest_candles(instrument_key)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_latest_candles_updated ON latest_candles(updated_at)')
                 conn.commit()
                 conn.close()
-                logger.info("Database initialized with trend table")
+                logger.info("Database initialized with all required tables")
                 break
             except sqlite3.OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
@@ -1492,11 +1522,174 @@ class LockFreeTickProcessor:
         except Exception as e:
             logger.error(f"Error updating latest candle: {e}")
 
+# === ENHANCED BUY/SELL SIGNAL GENERATOR ===
+class BuySignalGenerator:
+    def __init__(self, db_manager, cash_flow_calculator):
+        self.db_manager = db_manager
+        self.cash_flow_calculator = cash_flow_calculator
+        self.active_signals = {}
+        self.previous_trend = 0  # Track previous trend for change detection
+        self.last_signal_time = None
+        self.signal_cooldown = 60  # 60 seconds between signals
+
+    def check_and_generate_signals(self, nifty_price, current_trend, interval='1min'):
+        """Enhanced signal generation with trend change detection and interval-specific thresholds"""
+        cash_metrics = self.cash_flow_calculator.get_current_cash_metrics()
+        current_cash = cash_metrics['cash']
+        min_cash = cash_metrics['min_cash']
+        max_cash = cash_metrics['max_cash']
+
+        # Set thresholds based on interval
+        if interval == '1min':
+            buy_threshold = 100000  # ±100K for 1-minute signals
+        else:  # 5min
+            buy_threshold = 500000  # ±500K for 5-minute signals
+
+        # Check for cooldown period
+        current_time = datetime.now(IST)
+        if (self.last_signal_time and
+            (current_time - self.last_signal_time).total_seconds() < self.signal_cooldown):
+            return
+
+        # Detect trend change (only for 1-minute signals to avoid duplicates)
+        if interval == '1min':
+            trend_changed = self.previous_trend != current_trend
+
+            if trend_changed:
+                logger.info(f"🔄 TREND CHANGE DETECTED: {self.previous_trend} → {current_trend}")
+
+                # SELL SIGNAL LOGIC based on trend change and cash position
+                if self.previous_trend == 1 and current_trend == -1:
+                    # Trend changed from POSITIVE to NEGATIVE
+                    self._check_sell_signal_positive_to_negative(current_cash, min_cash, max_cash, nifty_price)
+
+                elif self.previous_trend == -1 and current_trend == 1:
+                    # Trend changed from NEGATIVE to POSITIVE
+                    self._check_sell_signal_negative_to_positive(current_cash, min_cash, max_cash, nifty_price)
+
+        # BUY SIGNAL LOGIC with dynamic thresholds
+        if current_cash > buy_threshold:  # Positive cash = CE signal
+            itm_options = self.cash_flow_calculator.get_itm_options(nifty_price)
+            if itm_options['itm_ce']:
+                self._generate_ce_signal(itm_options['itm_ce'], current_cash, 'BUY', interval)
+
+        elif current_cash < -buy_threshold:  # Negative cash = PE signal
+            itm_options = self.cash_flow_calculator.get_itm_options(nifty_price)
+            if itm_options['itm_pe']:
+                self._generate_pe_signal(itm_options['itm_pe'], current_cash, 'BUY', interval)
+
+        # Update previous trend for next comparison (only for 1-minute)
+        if interval == '1min':
+            self.previous_trend = current_trend
+
+    def _check_sell_signal_positive_to_negative(self, current_cash, min_cash, max_cash, nifty_price):
+        """Check sell signal when trend changes from positive to negative"""
+        # Check if cash is negative AND near minimum (not maximum)
+        if current_cash < 0:
+            # Calculate distance from min and max
+            distance_from_min = abs(current_cash - min_cash)
+            distance_from_max = abs(current_cash - max_cash)
+
+            # Cash should be closer to min than to max
+            if distance_from_min <= distance_from_max:
+                # Generate SELL signal for PE (since cash is negative and near min)
+                itm_options = self.cash_flow_calculator.get_itm_options(nifty_price)
+                if itm_options['itm_pe']:
+                    self._generate_pe_signal(itm_options['itm_pe'], current_cash, 'SELL')
+                    logger.info(f"🔴 SELL PE SIGNAL: Trend +→- | Cash: {current_cash:.0f} (near min: {min_cash:.0f})")
+
+    def _check_sell_signal_negative_to_positive(self, current_cash, min_cash, max_cash, nifty_price):
+        """Check sell signal when trend changes from negative to positive"""
+        # Check if cash is positive AND near maximum (not minimum)
+        if current_cash > 0:
+            # Calculate distance from min and max
+            distance_from_min = abs(current_cash - min_cash)
+            distance_from_max = abs(current_cash - max_cash)
+
+            # Cash should be closer to max than to min
+            if distance_from_max <= distance_from_min:
+                # Generate SELL signal for CE (since cash is positive and near max)
+                itm_options = self.cash_flow_calculator.get_itm_options(nifty_price)
+                if itm_options['itm_ce']:
+                    self._generate_ce_signal(itm_options['itm_ce'], current_cash, 'SELL')
+                    logger.info(f"🟢 SELL CE SIGNAL: Trend -→+ | Cash: {current_cash:.0f} (near max: {max_cash:.0f})")
+
+    def _generate_ce_signal(self, ce_option, cash, action_type):
+        """Generate CE signal (BUY or SELL)"""
+        signal_data = {
+            'timestamp': datetime.now(IST).isoformat(),
+            'signal_type': f'{action_type}_CE',
+            'option_key': ce_option['instrument_key'],
+            'strike': ce_option['strike'],
+            'cash_flow': cash,
+            'status': 'ACTIVE',
+            'action': action_type
+        }
+
+        # Save to database
+        conn = sqlite3.connect(TRADING_DB, timeout=10.0)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO buy_signals (timestamp, signal_type, option_key, strike, entry_price, target, sl, status, cash_flow)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            signal_data['timestamp'],
+            signal_data['signal_type'],
+            signal_data['option_key'],
+            signal_data['strike'],
+            0,  # Entry price
+            0,  # Target
+            0,  # Stop Loss
+            signal_data['status'],
+            signal_data['cash_flow']
+        ))
+        conn.commit()
+        conn.close()
+
+        self.last_signal_time = datetime.now(IST)
+        logger.info(f"🟢 {action_type} CE SIGNAL: {ce_option['strike']} @ Cash: {cash:.2f}")
+
+    def _generate_pe_signal(self, pe_option, cash, action_type):
+        """Generate PE signal (BUY or SELL)"""
+        signal_data = {
+            'timestamp': datetime.now(IST).isoformat(),
+            'signal_type': f'{action_type}_PE',
+            'option_key': pe_option['instrument_key'],
+            'strike': pe_option['strike'],
+            'cash_flow': cash,
+            'status': 'ACTIVE',
+            'action': action_type
+        }
+
+        # Save to database
+        conn = sqlite3.connect(TRADING_DB, timeout=10.0)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO buy_signals (timestamp, signal_type, option_key, strike, entry_price, target, sl, status, cash_flow)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            signal_data['timestamp'],
+            signal_data['signal_type'],
+            signal_data['option_key'],
+            signal_data['strike'],
+            0,  # Entry price
+            0,  # Target
+            0,  # Stop Loss
+            signal_data['status'],
+            signal_data['cash_flow']
+        ))
+        conn.commit()
+        conn.close()
+
+        self.last_signal_time = datetime.now(IST)
+        logger.info(f"🔴 {action_type} PE SIGNAL: {pe_option['strike']} @ Cash: {cash:.2f}")
+
 # === OPTIONS CASH FLOW CALCULATOR ===
 class OptionsTickCashFlowCalculator:
     """Cash flow calculator for options based on VTT changes"""
     def __init__(self, selected_options_df):
         self.options = {row['instrument_key']: row for idx, row in selected_options_df.iterrows()}
+        # 1-minute data
         self.cash = 0.0
         self.min_cash = float('inf')
         self.max_cash = float('-inf')
@@ -1507,7 +1700,12 @@ class OptionsTickCashFlowCalculator:
         self.high = float('-inf')
         self.low = float('inf')
         self.close = None
-        logger.info("✅ Cash Flow Calculator initialized")
+        # 5-minute aggregated data
+        self.cash_5min = 0.0
+        self.min_cash_5min = float('inf')
+        self.max_cash_5min = float('-inf')
+        self.current_5min_start = None
+        logger.info("✅ Cash Flow Calculator initialized (1-min & 5-min)")
 
     def process_option_tick(self, instrument_key, ltp, vtt, timestamp):
         """Process individual option tick and calculate cash flow using VTT changes"""
@@ -1574,6 +1772,55 @@ class OptionsTickCashFlowCalculator:
         self.low = float('inf')
         self.close = None
 
+        # Handle 5-minute bucket reset and aggregation
+        _5min_start = minute.replace(minute=(minute.minute // 5) * 5, second=0, microsecond=0)
+        if self.current_5min_start != _5min_start:
+            if self.current_5min_start:
+                self._aggregate_to_5min()  # Aggregate cash before saving
+                self._save_5min_data()
+            self._reset_5min(_5min_start)
+
+    def _aggregate_to_5min(self):
+        """Aggregate 1-minute cash flow to 5-minute bucket"""
+        # Accumulate cash from the current minute to the 5-minute bucket
+        self.cash_5min += self.cash
+        # Update min and max for the 5-minute period
+        if self.min_cash < self.min_cash_5min:
+            self.min_cash_5min = self.min_cash
+        if self.max_cash > self.max_cash_5min:
+            self.max_cash_5min = self.max_cash
+
+    def _reset_5min(self, _5min_start):
+        """Reset 5-minute bucket"""
+        self.current_5min_start = _5min_start
+        self.cash_5min = 0.0
+        self.min_cash_5min = float('inf')
+        self.max_cash_5min = float('-inf')
+
+    def _save_5min_data(self):
+        """Save 5-minute aggregated cash flow data"""
+        if not self.current_5min_start:
+            return
+        try:
+            conn = sqlite3.connect(TRADING_DB, timeout=10.0)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO options_cash_flow (timestamp, interval_type, cash, min_cash, max_cash, total_options) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    self.current_5min_start.strftime('%Y-%m-%d %H:%M:%S'),
+                    '5min',
+                    round(self.cash_5min, 4),
+                    round(self.min_cash_5min, 4),
+                    round(self.max_cash_5min, 4),
+                    len(self.options)
+                )
+            )
+            conn.commit()
+            conn.close()
+            logger.debug(f"Saved 5-min cash flow: {self.cash_5min:.4f} at {self.current_5min_start}")
+        except Exception as e:
+            logger.error(f"Database error in 5-min cash flow save: {e}")
+
     def _save_minute_data(self):
         """Save current minute data to database"""
         if not self.current_minute or self.open is None:
@@ -1627,17 +1874,21 @@ class OptionsTickCashFlowCalculator:
 
 # === MAIN WEBSOCKET CONNECTION MANAGER ===
 async def websocket_v3_connection_manager():
-    global db_manager, processors, cash_flow_calculator
+    global db_manager, processors, cash_flow_calculator, buy_signal_generator
     db_manager = LockFreeDatabaseManager()
 
     # Initialize cash flow calculator with selected options
     selected_options, _ = auto_select_options('extracted_data.csv')
     if not selected_options.empty:
         cash_flow_calculator = OptionsTickCashFlowCalculator(selected_options)
+        # Initialize buy signal generator
+        buy_signal_generator = BuySignalGenerator(db_manager, cash_flow_calculator)
         logger.info(f"✅ Cash flow calculator initialized with {len(selected_options)} options")
+        logger.info("✅ Buy signal generator initialized")
     else:
         cash_flow_calculator = None
-        logger.warning("❌ No options selected - cash flow calculator not initialized")
+        buy_signal_generator = None
+        logger.warning("❌ No options selected - cash flow calculator and signal generator not initialized")
 
     processors = {}
     for name, config in INSTRUMENTS.items():
@@ -1736,6 +1987,14 @@ async def websocket_v3_connection_manager():
                                                 cash_flow_calculator.process_option_tick(
                                                     key, tick.ltp, tick.vtt, tick.timestamp
                                                 )
+
+                        # Generate buy signals based on cash flow every minute
+                        if buy_signal_generator and cash_flow_calculator:
+                            nifty_processor = processors.get(INSTRUMENTS["NIFTY_INDEX"]["key"])
+                            if nifty_processor and hasattr(nifty_processor, 'current_candle') and nifty_processor.current_candle:
+                                current_nifty_price = nifty_processor.current_candle.close
+                                current_trend = nifty_processor.present_trend_1min  # Get current trend
+                                buy_signal_generator.check_and_generate_signals(current_nifty_price, current_trend)
                         message_count += 1
                         current_time = time.time()
                         if current_time - last_stats_time > 60:

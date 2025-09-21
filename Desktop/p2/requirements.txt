@@ -7,5 +7,7 @@ protobuf==5.27.2
 backports.zoneinfo==0.2.1; python_version < '3.9'
 schedule==1.2.0
 psutil==5.9.8
-
-
+flask-limiter==3.5.0
+pandas==2.0.3
+numpy==1.24.3
+python-dotenv==1.0.0

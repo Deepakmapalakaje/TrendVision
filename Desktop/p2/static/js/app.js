@@ -1,9 +1,11 @@
 // TrendVision Trading Dashboard - Cash Flow Enhanced
 let currentInterval = '1min';
+let currentCashInterval = '1min'; // For cash flow tabs
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
+  setupCashFlowTabs();
   fetchAndRender();
   setInterval(fetchAndRender, 3000); // Update every 3 seconds
 });
@@ -29,6 +31,17 @@ function setupEventListeners() {
       setTimeout(() => refreshBtn.textContent = '⟳', 1000);
     });
   }
+}
+
+function setupCashFlowTabs() {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentCashInterval = btn.dataset.interval;
+      fetchCashFlow();
+    });
+  });
 }
 
 async function fetchAndRender() {
@@ -821,43 +834,364 @@ function renderActiveSignals(signals) {
 }
 
 // Render Recent Signals
-function renderRecentSignals(signals) {
-  const signalsList = document.getElementById('recent-signals');
-  if (!signalsList) return;
+// ===== ADDITIONAL NEW FUNCTIONS FOR FRONTEND INTEGRATION =====
 
-  // Clear existing signals
-  signalsList.innerHTML = '';
+// Setup cash flow tabs
+function setupCashFlowTabs() {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentCashInterval = btn.dataset.interval;
+      fetchCashFlowData();
+    });
+  });
+}
 
-  if (!signals || signals.length === 0) {
-    signalsList.innerHTML = '<div class="no-signals">No recent signals</div>';
-    return;
+// Fetch cash flow data for the selected interval
+async function fetchCashFlowData() {
+  try {
+    const response = await fetch('/api/cash-flow');
+    const data = await response.json();
+
+    if (data.ok && data[currentCashInterval]) {
+      const cashData = data[currentCashInterval];
+      document.getElementById('current-cash').textContent = `₹${cashData.cash.toFixed(4)}`;
+      document.getElementById('min-cash').textContent = `₹${cashData.min_cash.toFixed(4)}`;
+      document.getElementById('max-cash').textContent = `₹${cashData.max_cash.toFixed(4)}`;
+    }
+  } catch (error) {
+    console.error('Error fetching cash flow data:', error);
+  }
+}
+
+// Fetch ITM options data
+async function fetchITMOptionsData() {
+  try {
+    const response = await fetch('/api/itm-options');
+    const data = await response.json();
+
+    if (data.ok) {
+      // Update NIFTY price
+      const niftyPriceElement = document.getElementById('nifty-price');
+      if (niftyPriceElement) {
+        niftyPriceElement.textContent = `₹${data.nifty_price.toFixed(2)}`;
+      }
+
+      // Update CE option
+      const ceStrikeElement = document.getElementById('itm-ce-strike');
+      const cePriceElement = document.getElementById('itm-ce-price');
+
+      if (data.itm_ce) {
+        if (ceStrikeElement) ceStrikeElement.textContent = data.itm_ce.strike || '-';
+        if (cePriceElement) cePriceElement.textContent = data.itm_ce.strike ? `₹${(data.itm_ce.last_price || data.itm_ce.close || 0).toFixed(2)}` : '-';
+      }
+
+      // Update PE option
+      const peStrikeElement = document.getElementById('itm-pe-strike');
+      const pePriceElement = document.getElementById('itm-pe-price');
+
+      if (data.itm_pe) {
+        if (peStrikeElement) peStrikeElement.textContent = data.itm_pe.strike || '-';
+        if (pePriceElement) pePriceElement.textContent = data.itm_pe.strike ? `₹${(data.itm_pe.last_price || data.itm_pe.close || 0).toFixed(2)}` : '-';
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching ITM options data:', error);
+  }
+}
+
+// Fetch buy signals data
+async function fetchBuySignalsData() {
+  try {
+    const response = await fetch('/api/buy-signals');
+    const data = await response.json();
+
+    if (data.ok && data.signals) {
+      const signalsList = document.getElementById('signals-list');
+      if (!signalsList) return;
+
+      // Clear existing signals
+      signalsList.innerHTML = '';
+
+      if (data.signals.length === 0) {
+        signalsList.innerHTML = '<div class="no-signals">No recent signals</div>';
+        return;
+      }
+
+      // Show last 5 signals
+      const recentSignals = data.signals.slice(0, 5);
+
+      recentSignals.forEach(signal => {
+        const signalDiv = document.createElement('div');
+        signalDiv.className = `signal-item ${signal.type.toLowerCase().replace('_', '-') || 'neutral'}`;
+
+        const time = new Date(signal.timestamp).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        const statusClass = signal.status.toLowerCase();
+        const statusText = signal.profit_loss ?
+          `₹${signal.profit_loss.toLocaleString()}` : signal.status;
+
+        signalDiv.innerHTML = `
+          <div class="signal-time">${time}</div>
+          <div class="signal-type">${signal.type}</div>
+          <div class="signal-strike">${signal.strike || 'N/A'}</div>
+          <div class="signal-status ${statusClass}">${signal.status}</div>
+          <div class="signal-cash-flow">Cash: ₹${(signal.cash_flow || 0).toFixed(4)}</div>
+        `;
+
+        signalsList.appendChild(signalDiv);
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching buy signals data:', error);
+  }
+}
+
+// Fetch cash flow data
+function fetchCashFlow() {
+  fetch('/api/cash-flow')
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        const cashData = data[currentCashInterval];
+        document.getElementById('current-cash').textContent = `₹${cashData.cash.toFixed(4)}`;
+        document.getElementById('min-cash').textContent = `₹${cashData.min_cash.toFixed(4)}`;
+        document.getElementById('max-cash').textContent = `₹${cashData.max_cash.toFixed(4)}`;
+      }
+    })
+    .catch(console.error);
+}
+
+// Render NIFTY and Future data
+function renderNiftyData(niftyData, futureData) {
+  if (niftyData && niftyData.close) {
+    document.getElementById('nifty-price').textContent = `₹${niftyData.close.toFixed(2)}`;
+
+    const change = niftyData.price_change || 0;
+    const changeElement = document.getElementById('nifty-change');
+    changeElement.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}`;
+    changeElement.className = `market-change ${change >= 0 ? 'positive' : 'negative'}`;
   }
 
-  // Show last 5 signals
-  const recentSignals = signals.slice(0, 5);
+  if (futureData && futureData.close) {
+    document.getElementById('future-price').textContent = `₹${futureData.close.toFixed(2)}`;
 
-  recentSignals.forEach(signal => {
-    const signalDiv = document.createElement('div');
-    signalDiv.className = `signal-item ${signal.buy_recommendation?.toLowerCase().replace('_', '-') || 'neutral'}`;
+    const change = futureData.price_change || 0;
+    const changeElement = document.getElementById('future-change');
+    changeElement.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}`;
+    changeElement.className = `market-change ${change >= 0 ? 'positive' : 'negative'}`;
+  }
+}
 
-    const time = new Date(signal.timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit'
+// Render cash flow data
+function renderCashFlow(cashFlowData) {
+  if (cashFlowData) {
+    document.getElementById('current-cash').textContent = `₹${(cashFlowData.cash || 0).toFixed(4)}`;
+    document.getElementById('min-cash').textContent = `₹${(cashFlowData.min_cash || 0).toFixed(4)}`;
+    document.getElementById('max-cash').textContent = `₹${(cashFlowData.max_cash || 0).toFixed(4)}`;
+  }
+}
+
+// Render ITM options
+function renderITMOptions(itmData) {
+  if (itmData) {
+    // Update NIFTY price
+    const niftyPriceElements = document.querySelectorAll('#nifty-price');
+    niftyPriceElements.forEach(el => {
+      if (itmData.nifty_price) {
+        el.textContent = `₹${itmData.nifty_price.toFixed(2)}`;
+      }
     });
 
-    signalDiv.innerHTML = `
-      <div class="signal-time">${time}</div>
-      <div class="signal-type">${signal.buy_recommendation || 'N/A'}</div>
-      <div class="signal-outcome ${signal.profit_loss ? (signal.profit_loss > 0 ? 'profit' : 'loss') : 'active'}">
-        ${signal.profit_loss ? `₹${signal.profit_loss.toLocaleString()}` : 'Active'}
-      </div>
-    `;
+    // Update ITM CE
+    if (itmData.itm_ce) {
+      document.getElementById('itm-ce-strike').textContent = itmData.itm_ce.strike_price || '-';
+      document.getElementById('itm-ce-price').textContent = `₹${(itmData.itm_ce.close || 0).toFixed(2)}`;
+    }
 
-    signalsList.appendChild(signalDiv);
-  });
+    // Update ITM PE
+    if (itmData.itm_pe) {
+      document.getElementById('itm-pe-strike').textContent = itmData.itm_pe.strike_price || '-';
+      document.getElementById('itm-pe-price').textContent = `₹${(itmData.itm_pe.close || 0).toFixed(2)}`;
+    }
+  }
+}
+
+// Render trend data
+function renderTrend(trendData) {
+  if (trendData) {
+    const trendValue = trendData.trend_value || 0;
+    const trendText = trendValue === 1 ? 'UP' : trendValue === -1 ? 'DOWN' : 'NEUTRAL';
+    const trendClass = trendValue === 1 ? 'trend-up' : trendValue === -1 ? 'trend-down' : 'trend-neutral';
+
+    document.querySelector('.trend-value').textContent = trendText;
+    document.querySelector('.trend-value').className = `trend-value ${trendClass}`;
+
+    if (trendData.timestamp) {
+      const time = new Date(trendData.timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      document.getElementById('trend-time').textContent = time;
+    }
+  }
+}
+
+// Render latest signal
+function renderLatestSignal(signalData) {
+  const signalDisplay = document.getElementById('signal-display');
+  const signalText = signalDisplay.querySelector('.signal-text');
+  const signalDetails = document.getElementById('signal-details');
+
+  if (signalData && signalData.buy_recommendation) {
+    signalText.textContent = signalData.buy_recommendation;
+    signalDetails.innerHTML = `
+      <div class="signal-detail">Entry: ₹${(signalData.entry_price || 0).toFixed(2)}</div>
+      <div class="signal-detail">Target: ₹${(signalData.target || 0).toFixed(2)}</div>
+      <div class="signal-detail">SL: ₹${(signalData.sl || 0).toFixed(2)}</div>
+    `;
+  } else {
+    signalText.textContent = 'No active signals';
+    signalDetails.innerHTML = '';
+  }
+}
+
+// Render active signals
+function renderActiveSignals(signals) {
+  const activePositions = document.getElementById('active-positions');
+
+  if (signals && signals.length > 0) {
+    const activeSignals = signals.filter(s => s.buy_recommendation);
+
+    if (activeSignals.length > 0) {
+      activePositions.innerHTML = activeSignals.map(signal => `
+        <div class="position-item">
+          <div class="position-type">${signal.buy_recommendation}</div>
+          <div class="position-price">₹${(signal.entry_price || 0).toFixed(2)}</div>
+          <div class="position-pnl ${(signal.profit_loss || 0) >= 0 ? 'positive' : 'negative'}">
+            ₹${(signal.profit_loss || 0).toFixed(2)}
+          </div>
+        </div>
+      `).join('');
+    } else {
+      activePositions.innerHTML = '<div class="no-positions">No active positions</div>';
+    }
+  } else {
+    activePositions.innerHTML = '<div class="no-positions">No active positions</div>';
+  }
+}
+
+// Render recent signals
+function renderRecentSignals(signals) {
+  const recentSignals = document.getElementById('recent-signals');
+
+  if (signals && signals.length > 0) {
+    recentSignals.innerHTML = signals.slice(0, 5).map(signal => `
+      <div class="signal-item">
+        <div class="signal-type">${signal.buy_recommendation || 'N/A'}</div>
+        <div class="signal-time">${new Date(signal.timestamp).toLocaleTimeString()}</div>
+        <div class="signal-pnl ${(signal.profit_loss || 0) >= 0 ? 'positive' : 'negative'}">
+          ₹${(signal.profit_loss || 0).toFixed(2)}
+        </div>
+      </div>
+    `).join('');
+  } else {
+    recentSignals.innerHTML = '<div class="no-signals">No recent signals</div>';
+  }
+}
+
+// Fetch ITM options separately
+function fetchITMOptions() {
+  fetch('/api/itm-options')
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        renderITMOptions(data);
+      }
+    })
+    .catch(console.error);
+}
+
+// Fetch buy signals separately
+function fetchBuySignals() {
+  fetch('/api/buy-signals')
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        renderBuySignalsInList(data.signals);
+      }
+    })
+    .catch(console.error);
+}
+
+// Render buy signals in the signals list
+function renderBuySignalsInList(signals) {
+  const signalsList = document.getElementById('signals-list');
+
+  if (signals && signals.length > 0) {
+    signalsList.innerHTML = signals.slice(0, 5).map(signal => `
+      <div class="signal-item">
+        <div class="signal-type ${signal.type.toLowerCase()}">${signal.type}</div>
+        <div class="signal-strike">${signal.strike}</div>
+        <div class="signal-status">${signal.status}</div>
+        <div class="signal-time">${new Date(signal.timestamp).toLocaleTimeString()}</div>
+        <div class="signal-cash">₹${(signal.cash_flow || 0).toFixed(0)}</div>
+      </div>
+    `).join('');
+  } else {
+    signalsList.innerHTML = '<div class="no-signals">No recent signals</div>';
+  }
+}
+
+// Update the main fetch function to include new data fetches
+function fetchAndRender() {
+  try {
+    // Existing API call - using summary for main data
+    fetch('/api/summary')
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) {
+          console.error('API Error:', data.error);
+          return;
+        }
+
+        // Render existing components
+        renderMarketData(data.nifty_data, data.future_data);
+        renderCashFlow(data.cash_flow);
+        renderITMOptions(data.itm_options);
+        renderTrend(data.latest_trend);
+        renderLatestSignal(data.latest_trend);
+        renderActiveSignals(data.active_signals);
+        renderRecentSignals(data.active_signals);
+
+        // Fetch additional data
+        fetchCashFlow();
+        fetchITMOptions();
+        fetchBuySignals();
+      })
+      .catch(error => {
+        console.error('Fetch error:', error);
+      });
+  } catch (error) {
+    console.error('Error in fetchAndRender:', error);
+  }
 }
 
 // Legacy functions for backward compatibility
 function renderCandles(candles) {
   renderMarketFeed(candles);
+}
+
+// Helper function to render market data (backward compatibility)
+function renderMarketData(niftyData, futureData) {
+  renderNiftyData(niftyData, futureData);
+}
+
+// Helper function to check if element is scrolled to bottom
+function isScrolledToBottom(element) {
+  return element.scrollTop + element.clientHeight >= element.scrollHeight - 10;
 }
