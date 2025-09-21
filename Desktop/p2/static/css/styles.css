@@ -560,11 +560,26 @@ body {
   }
 }
 
-/* Admin Panel Styles */
+/* ===== ENHANCED ADMIN PANEL STYLES ===== */
 .admin-panel {
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
+  position: relative;
+}
+
+.admin-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(26, 26, 26, 0.9) 0%, rgba(18, 18, 18, 0.95) 100%);
+  border-radius: 16px;
+  z-index: -1;
+  margin: -20px;
+  pointer-events: none;
 }
 
 .admin-actions {
