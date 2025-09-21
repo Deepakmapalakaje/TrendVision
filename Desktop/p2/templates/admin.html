@@ -3,251 +3,305 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TrendVision Admin Panel - Enhanced</title>
+    <title>TrendVision Control Center</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
-<body>
-    <div class="admin-container">
-        <div class="admin-header">
-            <h1>🔧 TrendVision Admin Panel - Enhanced</h1>
-            <div class="admin-info">
-                <span>Welcome, {{ session.username }}</span>
-                <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
-            </div>
-        </div>
-
-        <!-- Daily Configuration Section -->
-        <div class="admin-section">
-            <h2>📅 Daily Configuration</h2>
-
-            <!-- Access Token Update -->
-            <div class="config-card">
-                <h3>🔑 Daily Access Token</h3>
-                <form id="token-form">
-                    <div class="form-group">
-                        <label>Upstox Access Token (Required Daily):</label>
-                        <textarea id="access-token" placeholder="Paste your daily Upstox access token here..." rows="3" required></textarea>
-                    </div>
-                    <button type="submit" class="btn-primary">🔄 Update Token</button>
-                </form>
-                <div class="token-status" id="token-status">
-                    <p>Last Updated: <span id="token-last-updated">Never</span></p>
-                    <p>Status: <span id="token-validation-status">❌ Not Updated Today</span></p>
+<body class="admin-body">
+    <div class="admin-layout">
+        <header class="admin-header">
+            <div class="brand">
+                <span class="brand-icon">&#128200;</span>
+                <div class="brand-copy">
+                    <h1>TrendVision Control Center</h1>
+                    <p>Automation and daily operations dashboard</p>
                 </div>
             </div>
+            <div class="user-actions">
+                <span class="user-name">Signed in as {{ session.username }}</span>
+                <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
+            </div>
+        </header>
 
-            <!-- Future Instrument Key -->
-            <div class="config-card">
-                <h3>📈 NIFTY Future Key</h3>
-                <form id="future-form">
-                    <div class="form-group">
-                        <label>Future Instrument Key (Monthly Update):</label>
-                        <input type="text" id="future-key" placeholder="NSE_FO|53001" value="NSE_FO|53001" required>
+        <section class="summary-grid">
+            <article class="summary-card">
+                <span class="summary-label">Token Status</span>
+                <span class="status-pill info" id="token-status-chip">Checking...</span>
+                <p class="summary-meta">Daily Upstox token</p>
+            </article>
+            <article class="summary-card">
+                <span class="summary-label">Options Loaded</span>
+                <span class="summary-value" id="options-count-chip">0</span>
+                <p class="summary-meta">Total contracts in extracted file</p>
+            </article>
+            <article class="summary-card">
+                <span class="summary-label">Pipeline</span>
+                <span class="status-pill info" id="pipeline-status-chip">Checking...</span>
+                <p class="summary-meta">trendvision-pipeline.service</p>
+            </article>
+            <article class="summary-card">
+                <span class="summary-label">Memory</span>
+                <span class="status-pill info" id="memory-status-chip">--</span>
+                <p class="summary-meta">Server utilization</p>
+            </article>
+        </section>
+
+        <section class="admin-section">
+            <header class="section-header">
+                <h2>Daily Configuration</h2>
+                <p>Update credentials before market open to unlock the trading pipeline.</p>
+            </header>
+            <div class="section-grid two">
+                <article class="section-panel">
+                    <div class="panel-header">
+                        <h3>Daily Upstox Token</h3>
+                        <span class="status-pill neutral" id="token-detail-chip">Never updated</span>
                     </div>
-                    <button type="submit" class="btn-primary">📈 Update Future Key</button>
-                </form>
+                    <form id="token-form" class="form-stack">
+                        <label for="access-token">Paste new access token</label>
+                        <textarea id="access-token" rows="3" placeholder="Paste your daily Upstox access token..." required></textarea>
+                        <button type="submit" class="primary-btn">Update Token</button>
+                    </form>
+                    <div class="info-box">
+                        <p>Last updated: <span id="token-last-updated">Never</span></p>
+                        <p>Status: <span id="token-validation-status">Not checked</span></p>
+                    </div>
+                </article>
+                <article class="section-panel">
+                    <div class="panel-header">
+                        <h3>NIFTY Future Instrument</h3>
+                        <span class="status-pill neutral">Monthly update</span>
+                    </div>
+                    <form id="future-form" class="form-stack">
+                        <label for="future-key">Instrument key</label>
+                        <input type="text" id="future-key" value="NSE_FO|53001" required>
+                        <button type="submit" class="primary-btn outline">Update Future Key</button>
+                    </form>
+                    <p class="panel-note">Keep this aligned with the live monthly NIFTY future symbol.</p>
+                </article>
             </div>
-        </div>
+        </section>
 
-        <!-- Automated Options Generation -->
-        <div class="admin-section">
-            <h2>🤖 Automated Options Management</h2>
-
-            <!-- Step 1: Fetch Instruments -->
-            <div class="config-card">
-                <h3>📊 Step 1: Fetch Latest Instruments</h3>
-                <p>Fetch latest NIFTY instrument keys from Upstox API</p>
-                <button id="fetch-instruments-btn" class="btn-primary">🔄 Fetch Instruments</button>
-                <div id="fetch-status" class="status-message"></div>
-                <div class="nse-info">
-                    <p>NSE.csv Status: <span id="nse-csv-status">Not generated</span></p>
-                    <p>Instruments Count: <span id="nse-instruments-count">0</span></p>
-                </div>
-            </div>
-
-            <!-- Step 2: Select Expiry -->
-            <div class="config-card">
-                <h3>📅 Step 2: Select Expiry & Extract Options</h3>
-                <div class="form-group">
-                    <label>Available Expiry Dates:</label>
-                    <select id="expiry-select" required>
-                        <option value="">Click 'Fetch Instruments' first</option>
+        <section class="admin-section">
+            <header class="section-header">
+                <h2>Automated Options Management</h2>
+                <p>Fetch the latest instrument list and extract the 60-option set (30 CE + 30 PE).</p>
+            </header>
+            <div class="section-grid two">
+                <article class="section-panel">
+                    <div class="panel-header">
+                        <h3>Step 1 &#183; Fetch Instruments</h3>
+                        <span class="status-pill neutral">Upstox API</span>
+                    </div>
+                    <p class="panel-note">Downloads the latest NIFTY option instruments and stores them in <code>NSE.csv</code>.</p>
+                    <button id="fetch-instruments-btn" class="primary-btn block">Fetch Instruments</button>
+                    <div id="fetch-status" class="status-area"></div>
+                    <div class="info-box">
+                        <p>NSE.csv status: <span id="nse-csv-status">Not generated</span></p>
+                        <p>Expiries detected: <span id="nse-instruments-count">0</span></p>
+                    </div>
+                </article>
+                <article class="section-panel">
+                    <div class="panel-header">
+                        <h3>Step 2 &#183; Extract Options</h3>
+                        <span class="status-pill neutral">Requires fetch</span>
+                    </div>
+                    <p class="panel-note">Select the required expiry and build the production trading subset.</p>
+                    <label for="expiry-select">Expiry date</label>
+                    <select id="expiry-select">
+                        <option value="">Run fetch first</option>
                     </select>
-                </div>
-                <button id="extract-options-btn" class="btn-primary" disabled>📊 Extract 60 Options</button>
-                <div id="extract-status" class="status-message"></div>
-            </div>
-
-            <!-- Current Options Info -->
-            <div class="config-card">
-                <h3>📋 Current Options Status</h3>
-                <div class="options-info">
-                    <p>Total Options: <span id="current-options-count">0</span></p>
-                    <p>CE Options: <span id="current-ce-count">0</span></p>
-                    <p>PE Options: <span id="current-pe-count">0</span></p>
-                    <p>Last Updated: <span id="options-last-updated">Never</span></p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Manual CSV Upload (Backup Option) -->
-        <div class="admin-section">
-            <h2>📋 Manual CSV Upload (Backup)</h2>
-
-            <div class="config-card">
-                <h3>📁 Manual CSV Upload</h3>
-                <form id="csv-form" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label>Upload extracted_data.csv (Manual Backup):</label>
-                        <input type="file" id="csv-file" accept=".csv" required>
+                    <button id="extract-options-btn" class="primary-btn block" disabled>Extract 60 Options</button>
+                    <div id="extract-status" class="status-area"></div>
+                    <div class="info-box">
+                        <p>Total options: <span id="current-options-count">0</span></p>
+                        <p>Calls (CE): <span id="current-ce-count">0</span></p>
+                        <p>Puts (PE): <span id="current-pe-count">0</span></p>
+                        <p>Last updated: <span id="options-last-updated">Never</span></p>
                     </div>
-                    <button type="submit" class="btn-secondary">📤 Upload CSV</button>
+                </article>
+            </div>
+        </section>
+
+        <section class="admin-section">
+            <header class="section-header">
+                <h2>Manual CSV Upload</h2>
+                <p>Upload a curated <code>extracted_data.csv</code> file if automation is unavailable.</p>
+            </header>
+            <div class="section-panel">
+                <form id="csv-form" class="form-inline" enctype="multipart/form-data">
+                    <div class="form-field">
+                        <label for="csv-file">Select CSV file</label>
+                        <input type="file" id="csv-file" accept=".csv">
+                    </div>
+                    <button type="submit" class="primary-btn outline">Upload CSV</button>
                 </form>
             </div>
-        </div>
+        </section>
 
-        <!-- System Status Section -->
-        <div class="admin-section">
-            <h2>⚡ System Status</h2>
-
-            <div class="status-grid">
-                <div class="status-card">
-                    <h4>Trading Pipeline</h4>
+        <section class="admin-section">
+            <header class="section-header">
+                <h2>System Status</h2>
+                <p>Live service health, market hours, and resource utilization.</p>
+            </header>
+            <div class="section-grid three">
+                <article class="section-panel">
+                    <h3>Trading Pipeline</h3>
                     <div class="status-indicator" id="pipeline-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Checking...</span>
                     </div>
-                </div>
-
-                <div class="status-card">
-                    <h4>Market Hours</h4>
+                </article>
+                <article class="section-panel">
+                    <h3>Market Hours</h3>
                     <div class="status-indicator" id="market-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Checking...</span>
                     </div>
-                </div>
-
-                <div class="status-card">
-                    <h4>Memory Usage</h4>
-                    <div class="memory-info" id="memory-info">
-                        <div class="memory-bar">
-                            <div class="memory-used" id="memory-used"></div>
-                        </div>
-                        <span class="memory-text" id="memory-text">Loading...</span>
+                </article>
+                <article class="section-panel">
+                    <h3>Memory Usage</h3>
+                    <div class="memory-meter">
+                        <div class="memory-fill" id="memory-used"></div>
                     </div>
-                </div>
+                    <p class="memory-text" id="memory-text">Loading...</p>
+                </article>
             </div>
-        </div>
+        </section>
 
-        <!-- Service Control Section -->
-        <div class="admin-section">
-            <h2>🔧 Service Control</h2>
-
-            <div class="service-controls">
-                <button class="btn-success" onclick="restartPipeline()">🔄 Restart Pipeline</button>
-                <button class="btn-warning" onclick="restartWebApp()">🔄 Restart Web App</button>
-                <button class="btn-danger" onclick="cleanupDatabase()">🗑️ Cleanup Old Data</button>
+        <section class="admin-section">
+            <header class="section-header">
+                <h2>Service Controls</h2>
+                <p>Use cautiously. Actions are applied immediately on the production server.</p>
+            </header>
+            <div class="service-buttons">
+                <button class="primary-btn outline" onclick="restartPipeline()">Restart Pipeline</button>
+                <button class="primary-btn outline" onclick="restartWebApp()">Restart Web App</button>
+                <button class="danger-btn" onclick="cleanupDatabase()">Cleanup Old Data</button>
             </div>
-        </div>
+            <p class="section-footnote">The dashboard refreshes data every 30 seconds automatically.</p>
+        </section>
     </div>
 
     <script>
-        // Enhanced admin panel JavaScript with automation
+        const summaryToken = document.getElementById('token-status-chip');
+        const summaryOptions = document.getElementById('options-count-chip');
+        const summaryPipeline = document.getElementById('pipeline-status-chip');
+        const summaryMemory = document.getElementById('memory-status-chip');
 
-        // Token form submission
-        document.getElementById('token-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        function setStatusPill(element, state, text) {
+            element.textContent = text;
+            element.className = 'status-pill ' + state;
+        }
+
+        function setButtonBusy(button, message) {
+            button.dataset.originalText = button.textContent;
+            button.disabled = true;
+            button.classList.add('is-busy');
+            button.textContent = message;
+        }
+
+        function clearButtonBusy(button) {
+            button.disabled = false;
+            button.classList.remove('is-busy');
+            if (button.dataset.originalText) {
+                button.textContent = button.dataset.originalText;
+                delete button.dataset.originalText;
+            }
+        }
+
+        function renderStatusBadge(target, type, message) {
+            const pill = document.createElement('span');
+            pill.className = 'status-pill ' + type;
+            pill.textContent = message;
+            target.innerHTML = '';
+            target.appendChild(pill);
+        }
+
+        document.getElementById('token-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
             const token = document.getElementById('access-token').value.trim();
-
             if (!token) {
                 alert('Please enter access token');
                 return;
             }
-
+            const button = event.submitter || event.target.querySelector('button[type="submit"]');
+            setButtonBusy(button, 'Updating...');
             try {
                 const response = await fetch('/api/config', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ACCESS_TOKEN: token})
                 });
-
                 const data = await response.json();
-
                 if (data.ok) {
-                    alert('✅ Access token updated successfully!');
+                    alert('Access token updated successfully!');
                     document.getElementById('access-token').value = '';
                     updateTokenStatus();
                 } else {
-                    alert('❌ Failed to update token: ' + data.error);
+                    alert('Failed to update token: ' + (data.error || 'Unknown error'));
                 }
             } catch (error) {
-                alert('❌ Error updating token: ' + error.message);
+                alert('Error updating token: ' + error.message);
+            } finally {
+                clearButtonBusy(button);
             }
         });
 
-        // Future form submission
-        document.getElementById('future-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        document.getElementById('future-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
             const futureKey = document.getElementById('future-key').value.trim();
-
+            const button = event.submitter || event.target.querySelector('button[type="submit"]');
+            setButtonBusy(button, 'Updating...');
             try {
                 const response = await fetch('/api/config', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({NIFTY_FUTURE_key: futureKey})
                 });
-
                 const data = await response.json();
-
                 if (data.ok) {
-                    alert('✅ Future key updated successfully!');
+                    alert('Future key updated successfully!');
                 } else {
-                    alert('❌ Failed to update future key: ' + data.error);
+                    alert('Failed to update future key: ' + (data.error || 'Unknown error'));
                 }
             } catch (error) {
-                alert('❌ Error updating future key: ' + error.message);
+                alert('Error updating future key: ' + error.message);
+            } finally {
+                clearButtonBusy(button);
             }
         });
 
-        // Fetch instruments (NEW AUTOMATION FEATURE)
-        document.getElementById('fetch-instruments-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('fetch-instruments-btn');
+        document.getElementById('fetch-instruments-btn').addEventListener('click', async (event) => {
+            const button = event.currentTarget;
             const status = document.getElementById('fetch-status');
-
-            btn.disabled = true;
-            btn.textContent = '⏳ Fetching...';
-
+            setButtonBusy(button, 'Fetching...');
+            renderStatusBadge(status, 'info', 'Connecting to Upstox...');
             try {
                 const response = await fetch('/api/fetch-instruments', {method: 'POST'});
                 const data = await response.json();
-
                 if (data.ok) {
-                    status.innerHTML = '<span class="success">✅ Instruments fetched successfully</span>';
+                    renderStatusBadge(status, 'success', 'Instruments fetched successfully');
                     await loadExpiries();
                     document.getElementById('extract-options-btn').disabled = false;
                     updateNSEStatus();
                 } else {
-                    status.innerHTML = `<span class="error">❌ ${data.error}</span>`;
+                    renderStatusBadge(status, 'danger', data.error || 'Failed to fetch instruments');
                 }
             } catch (error) {
-                status.innerHTML = `<span class="error">❌ ${error.message}</span>`;
+                renderStatusBadge(status, 'danger', error.message);
             } finally {
-                btn.disabled = false;
-                btn.textContent = '🔄 Fetch Instruments';
+                clearButtonBusy(button);
             }
         });
 
-        // Load expiries (NEW AUTOMATION FEATURE)
         async function loadExpiries() {
             try {
                 const response = await fetch('/api/get-expiries');
                 const data = await response.json();
-
                 if (data.ok) {
                     const select = document.getElementById('expiry-select');
                     select.innerHTML = '';
-
-                    data.expiries.forEach(expiry => {
+                    data.expiries.forEach((expiry) => {
                         const option = document.createElement('option');
                         option.value = expiry;
                         option.textContent = expiry;
@@ -256,262 +310,256 @@
                         }
                         select.appendChild(option);
                     });
-
-                    document.getElementById('nse-instruments-count').textContent = data.expiries.length + ' expiries available';
                 }
             } catch (error) {
                 console.error('Error loading expiries:', error);
             }
         }
 
-        // Extract options (NEW AUTOMATION FEATURE)
-        document.getElementById('extract-options-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('extract-options-btn');
+        document.getElementById('extract-options-btn').addEventListener('click', async (event) => {
+            const button = event.currentTarget;
             const status = document.getElementById('extract-status');
             const expiry = document.getElementById('expiry-select').value;
-
             if (!expiry) {
                 alert('Please select an expiry date');
                 return;
             }
-
-            btn.disabled = true;
-            btn.textContent = '⏳ Extracting...';
-
+            setButtonBusy(button, 'Extracting...');
+            renderStatusBadge(status, 'info', 'Processing instruments...');
             try {
                 const response = await fetch('/api/extract-options', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({expiry_date: expiry})
                 });
-
                 const data = await response.json();
-
                 if (data.ok) {
-                    status.innerHTML = '<span class="success">✅ Options extracted successfully</span>';
+                    renderStatusBadge(status, 'success', 'Options extracted successfully');
                     updateOptionsInfo();
                 } else {
-                    status.innerHTML = `<span class="error">❌ ${data.error}</span>`;
+                    renderStatusBadge(status, 'danger', data.error || 'Failed to extract options');
                 }
             } catch (error) {
-                status.innerHTML = `<span class="error">❌ ${error.message}</span>`;
+                renderStatusBadge(status, 'danger', error.message);
             } finally {
-                btn.disabled = false;
-                btn.textContent = '📊 Extract 60 Options';
+                clearButtonBusy(button);
             }
         });
 
-        // Manual CSV upload (existing feature)
-        document.getElementById('csv-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        document.getElementById('csv-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
             const fileInput = document.getElementById('csv-file');
             const file = fileInput.files[0];
-
             if (!file) {
                 alert('Please select a CSV file');
                 return;
             }
-
+            const button = event.submitter || event.target.querySelector('button[type="submit"]');
+            setButtonBusy(button, 'Uploading...');
             const formData = new FormData();
             formData.append('csv_file', file);
-
             try {
-                const response = await fetch('/api/upload-csv', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const response = await fetch('/api/upload-csv', {method: 'POST', body: formData});
                 const data = await response.json();
-
                 if (data.ok) {
-                    alert('✅ CSV uploaded successfully!');
+                    alert('CSV uploaded successfully!');
                     fileInput.value = '';
                     updateOptionsInfo();
                 } else {
-                    alert('❌ Failed to upload CSV: ' + data.error);
+                    alert('Failed to upload CSV: ' + (data.error || 'Unknown error'));
                 }
             } catch (error) {
-                alert('❌ Error uploading CSV: ' + error.message);
+                alert('Error uploading CSV: ' + error.message);
+            } finally {
+                clearButtonBusy(button);
             }
         });
 
-        // Update token status (NEW FEATURE)
         async function updateTokenStatus() {
             try {
                 const response = await fetch('/api/config');
                 const data = await response.json();
-
                 if (data.ok) {
-                    const config = data.config;
+                    const config = data.config || {};
                     const tokenDate = config.TOKEN_UPDATE_DATE;
                     const today = new Date().toISOString().split('T')[0];
-
-                    document.getElementById('token-last-updated').textContent =
-                        tokenDate ? new Date(tokenDate).toLocaleDateString() : 'Never';
-
-                    const statusElement = document.getElementById('token-validation-status');
+                    const readable = tokenDate ? new Date(tokenDate).toLocaleString() : 'Never';
+                    document.getElementById('token-last-updated').textContent = readable;
+                    const validation = document.getElementById('token-validation-status');
+                    const detailChip = document.getElementById('token-detail-chip');
+                    if (!tokenDate) {
+                        validation.textContent = 'No token provided';
+                        detailChip.textContent = 'Token missing';
+                        detailChip.className = 'status-pill danger';
+                        setStatusPill(summaryToken, 'danger', 'Token required');
+                        return;
+                    }
                     if (tokenDate === today) {
-                        statusElement.innerHTML = '✅ Updated Today';
-                        statusElement.className = 'success';
+                        validation.textContent = 'Updated today';
+                        detailChip.textContent = 'Updated today';
+                        detailChip.className = 'status-pill success';
+                        setStatusPill(summaryToken, 'success', 'Token ready');
                     } else {
-                        statusElement.innerHTML = '❌ Not Updated Today';
-                        statusElement.className = 'error';
+                        validation.textContent = 'Token from ' + readable;
+                        detailChip.textContent = 'Stale token';
+                        detailChip.className = 'status-pill warning';
+                        setStatusPill(summaryToken, 'warning', 'Token stale');
                     }
                 }
             } catch (error) {
                 console.error('Error updating token status:', error);
+                setStatusPill(summaryToken, 'danger', 'Status unavailable');
             }
         }
 
-        // Update NSE status (NEW FEATURE)
         async function updateNSEStatus() {
             try {
-                // Check if NSE.csv exists
                 const response = await fetch('/api/get-expiries');
                 const data = await response.json();
-
-                if (data.ok && data.expiries.length > 0) {
-                    document.getElementById('nse-csv-status').textContent = 'Generated';
-                    document.getElementById('nse-instruments-count').textContent = data.expiries.length + ' expiries available';
-                } else {
-                    document.getElementById('nse-csv-status').textContent = 'Not generated';
-                    document.getElementById('nse-instruments-count').textContent = '0';
+                if (data.ok && Array.isArray(data.expiries)) {
+                    document.getElementById('nse-csv-status').textContent = data.expiries.length ? 'Generated' : 'Not generated';
+                    document.getElementById('nse-instruments-count').textContent = data.expiries.length;
                 }
             } catch (error) {
-                document.getElementById('nse-csv-status').textContent = 'Error checking';
+                document.getElementById('nse-csv-status').textContent = 'Error fetching status';
+                console.error('Error updating NSE status:', error);
             }
         }
 
-        // Update options info (NEW FEATURE)
         async function updateOptionsInfo() {
             try {
                 const response = await fetch('/api/csv-info');
                 const data = await response.json();
-
                 if (data.ok) {
-                    document.getElementById('current-options-count').textContent = data.total_options;
-                    document.getElementById('current-ce-count').textContent = data.ce_count;
-                    document.getElementById('current-pe-count').textContent = data.pe_count;
-                    document.getElementById('options-last-updated').textContent =
-                        data.last_updated ? new Date(data.last_updated).toLocaleString() : 'Never';
+                    const total = data.total_options || 0;
+                    document.getElementById('current-options-count').textContent = total;
+                    document.getElementById('current-ce-count').textContent = data.ce_count || 0;
+                    document.getElementById('current-pe-count').textContent = data.pe_count || 0;
+                    document.getElementById('options-last-updated').textContent = data.last_updated ? new Date(data.last_updated).toLocaleString() : 'Never';
+                    summaryOptions.textContent = total.toString();
                 }
             } catch (error) {
                 console.error('Error updating options info:', error);
             }
         }
 
-        // Load system status (existing)
         async function loadSystemStatus() {
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
-
                 if (data.ok) {
-                    // Update pipeline status
                     const pipelineStatus = document.getElementById('pipeline-status');
                     const pipelineDot = pipelineStatus.querySelector('.status-dot');
                     const pipelineText = pipelineStatus.querySelector('.status-text');
-
                     if (data.pipeline_running) {
-                        pipelineDot.style.background = '#4caf50';
-                        pipelineText.textContent = 'RUNNING';
+                        pipelineDot.style.background = '#34d399';
+                        pipelineText.textContent = 'Running';
+                        setStatusPill(summaryPipeline, 'success', 'Pipeline running');
                     } else {
-                        pipelineDot.style.background = '#f44336';
-                        pipelineText.textContent = 'STOPPED';
+                        pipelineDot.style.background = '#f87171';
+                        pipelineText.textContent = 'Stopped';
+                        setStatusPill(summaryPipeline, 'danger', 'Pipeline stopped');
                     }
-
-                    // Update market status
                     const marketStatus = document.getElementById('market-status');
                     const marketDot = marketStatus.querySelector('.status-dot');
                     const marketText = marketStatus.querySelector('.status-text');
-
                     if (data.market_hours) {
-                        marketDot.style.background = '#4caf50';
-                        marketText.textContent = 'OPEN';
+                        marketDot.style.background = '#34d399';
+                        marketText.textContent = 'Open';
                     } else {
-                        marketDot.style.background = '#ff9800';
-                        marketText.textContent = 'CLOSED';
+                        marketDot.style.background = '#fbbf24';
+                        marketText.textContent = 'Closed';
                     }
-
-                    // Update memory info
+                    const memory = data.memory || {};
                     const memoryUsed = document.getElementById('memory-used');
                     const memoryText = document.getElementById('memory-text');
-
-                    const memoryPercent = data.memory.percentage;
-                    memoryUsed.style.width = memoryPercent + '%';
-                    memoryText.textContent = `${data.memory.used}GB / ${data.memory.total}GB (${memoryPercent.toFixed(1)}%)`;
-
-                    if (memoryPercent > 80) {
-                        memoryUsed.style.background = '#f44336';
-                    } else if (memoryPercent > 60) {
-                        memoryUsed.style.background = '#ff9800';
+                    const percent = memory.percentage || 0;
+                    memoryUsed.style.width = Math.min(percent, 100) + '%';
+                    memoryText.textContent = (memory.used || 0) + 'GB / ' + (memory.total || 0) + 'GB (' + percent.toFixed(1) + '%)';
+                    if (percent > 85) {
+                        memoryUsed.style.background = '#f87171';
+                        setStatusPill(summaryMemory, 'danger', percent.toFixed(0) + '% used');
+                    } else if (percent > 65) {
+                        memoryUsed.style.background = '#fbbf24';
+                        setStatusPill(summaryMemory, 'warning', percent.toFixed(0) + '% used');
                     } else {
-                        memoryUsed.style.background = '#4caf50';
+                        memoryUsed.style.background = '#34d399';
+                        setStatusPill(summaryMemory, 'success', percent.toFixed(0) + '% used');
                     }
                 }
             } catch (error) {
                 console.error('Error loading system status:', error);
+                setStatusPill(summaryPipeline, 'danger', 'Status unavailable');
+                setStatusPill(summaryMemory, 'danger', 'Status unavailable');
             }
         }
 
-        // Service control functions (existing)
         async function restartPipeline() {
-            if (confirm('Restart trading pipeline? This will briefly interrupt data collection.')) {
-                try {
-                    const response = await fetch('/api/restart-pipeline', {method: 'POST'});
-                    const data = await response.json();
-                    if (data.ok) {
-                        alert('✅ Pipeline restart initiated');
-                    } else {
-                        alert('❌ Failed to restart pipeline: ' + data.error);
-                    }
-                } catch (error) {
-                    alert('❌ Error: ' + error.message);
+            if (!confirm('Restart trading pipeline? This will briefly interrupt data collection.')) {
+                return;
+            }
+            try {
+                const response = await fetch('/api/restart-pipeline', {method: 'POST'});
+                const data = await response.json();
+                if (data.ok) {
+                    alert('Pipeline restart initiated');
+                    setTimeout(loadSystemStatus, 2000);
+                } else {
+                    alert('Failed to restart pipeline: ' + (data.error || 'Unknown error'));
                 }
+            } catch (error) {
+                alert('Error: ' + error.message);
             }
         }
 
         async function restartWebApp() {
-            if (confirm('Restart web application? You will be logged out.')) {
-                try {
-                    const response = await fetch('/api/restart-webapp', {method: 'POST'});
-                    const data = await response.json();
-                    if (data.ok) {
-                        alert('✅ Web app restart initiated');
-                        window.location.href = '/login';
-                    } else {
-                        alert('❌ Failed to restart web app: ' + data.error);
-                    }
-                } catch (error) {
-                    alert('❌ Error: ' + error.message);
+            if (!confirm('Restart web application? You will be logged out.')) {
+                return;
+            }
+            try {
+                const response = await fetch('/api/restart-webapp', {method: 'POST'});
+                const data = await response.json();
+                if (data.ok) {
+                    alert('Web app restart initiated');
+                    window.location.href = '/login';
+                } else {
+                    alert('Failed to restart web app: ' + (data.error || 'Unknown error'));
                 }
+            } catch (error) {
+                alert('Error: ' + error.message);
             }
         }
 
         async function cleanupDatabase() {
-            if (confirm('Clean up old database records? This will remove data older than 30 days.')) {
-                try {
-                    const response = await fetch('/admin/cleanup', {method: 'POST'});
-                    const data = await response.json();
-                    if (data.ok) {
-                        alert('✅ Database cleanup completed');
-                    } else {
-                        alert('❌ Failed to cleanup database: ' + data.error);
-                    }
-                } catch (error) {
-                    alert('❌ Error: ' + error.message);
+            if (!confirm('Remove data older than 30 days? This action cannot be undone.')) {
+                return;
+            }
+            try {
+                const response = await fetch('/admin/cleanup', {method: 'POST'});
+                const data = await response.json();
+                if (data.ok) {
+                    alert('Database cleanup completed');
+                } else {
+                    alert('Failed to cleanup database: ' + (data.error || 'Unknown error'));
                 }
+            } catch (error) {
+                alert('Error: ' + error.message);
             }
         }
 
-        // Initialize page (NEW ENHANCED INITIALIZATION)
+        window.restartPipeline = restartPipeline;
+        window.restartWebApp = restartWebApp;
+        window.cleanupDatabase = cleanupDatabase;
+
         document.addEventListener('DOMContentLoaded', () => {
+            setStatusPill(summaryToken, 'info', 'Checking...');
+            summaryOptions.textContent = '0';
+            setStatusPill(summaryPipeline, 'info', 'Checking...');
+            setStatusPill(summaryMemory, 'info', '--');
             updateTokenStatus();
             updateNSEStatus();
             updateOptionsInfo();
             loadSystemStatus();
-
-            // Auto-refresh every 30 seconds
             setInterval(() => {
                 updateTokenStatus();
                 updateNSEStatus();

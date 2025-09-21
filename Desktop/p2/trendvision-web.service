@@ -1,0 +1,21 @@
+[Unit]
+Description=TrendVision Web Application - Enhanced Version
+After=network.target
+
+[Service]
+Type=simple
+User=trendvision
+Group=trendvision
+WorkingDirectory=/opt/trendvision
+Environment=PATH=/opt/trendvision/venv/bin
+Environment=PYTHONPATH=/opt/trendvision
+ExecStart=/opt/trendvision/venv/bin/python app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -2,11 +2,11 @@
 
 set -euo pipefail
 
-VM_NAME="instance-20250921-125329"
+VM_NAME="instance-20250921-135630"
 ZONE="asia-south1-b"
 DOMAIN="trendvision2004.com"
 ALT_DOMAIN="www.trendvision2004.com"
-VM_IP="34.93.113.19"
+VM_IP="34.93.47.90"
 REPO_URL="https://github.com/Deepakmapalakaje/TrendVision.git"
 
 log_step() { printf '\n==> %s\n' "$1"; }
