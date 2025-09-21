@@ -201,6 +201,8 @@ shutdown_event = None
 db_manager = None
 processors = {}
 cash_flow_calculator = None  # Global cash flow calculator for 60 options
+buy_signal_generator = None  # Global buy signal generator
+option_tracker = None  # Global option tracker for specific P&L logic
 
 # === LOGGING SETUP ===
 def setup_logging():
@@ -1522,6 +1524,148 @@ class LockFreeTickProcessor:
         except Exception as e:
             logger.error(f"Error updating latest candle: {e}")
 
+# === ENHANCED OPTION TRACKER WITH SPECIFIC P&L LOGIC ===
+class OptionTracker:
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
+        self.active_positions = {}  # {option_key: position_data}
+        self.quantity = 975  # Fixed quantity as specified
+
+    def start_tracking(self, signal_data, option_key):
+        """Start tracking a bought option with specific P&L rules"""
+        # Get current option price as entry price
+        entry_price = self._get_option_current_price(option_key)
+
+        if entry_price <= 0:
+            logger.error(f"❌ Cannot track {option_key}: Invalid entry price")
+            return
+
+        position = {
+            'signal_id': signal_data.get('id'),
+            'option_key': option_key,
+            'entry_price': entry_price,
+            'target': entry_price + 5,      # Entry + 5
+            'sl': entry_price - 5,          # Entry - 5
+            'trailing_sl': entry_price - 5, # Initial SL
+            'trail_triggered': False,
+            'quantity': self.quantity,
+            'status': 'ACTIVE',
+            'entry_time': datetime.now(IST)
+        }
+
+        self.active_positions[option_key] = position
+
+        logger.info(f"📊 TRACKING STARTED: {option_key}")
+        logger.info(f"   💰 Entry: ₹{entry_price:.2f} | Target: ₹{position['target']:.2f} | SL: ₹{position['sl']:.2f}")
+        logger.info(f"   📦 Quantity: {self.quantity}")
+
+    def check_all_positions(self, processors):
+        """Check all active positions for target/SL hits"""
+        for option_key, position in list(self.active_positions.items()):
+            if position['status'] != 'ACTIVE':
+                continue
+
+            # Get current option LTP (NOT index/future price)
+            current_ltp = self._get_option_current_price(option_key)
+            if current_ltp <= 0:
+                continue
+
+            # Check for trailing SL trigger (price reaches entry + 4)
+            if not position['trail_triggered'] and current_ltp >= (position['entry_price'] + 4):
+                position['trailing_sl'] = position['entry_price'] + 2  # Set trailing SL to entry + 2
+                position['trail_triggered'] = True
+                logger.info(f"🔄 TRAILING SL ACTIVATED: {option_key} @ ₹{current_ltp:.2f}")
+                logger.info(f"   📈 New Trailing SL: ₹{position['trailing_sl']:.2f}")
+
+            # Check target hit
+            if current_ltp >= position['target']:
+                profit = self.quantity * 5  # 975 * 5 = 4,875
+                self._close_position(option_key, current_ltp, 'TARGET_HIT', profit)
+
+            # Check stop loss hit
+            elif current_ltp <= position['trailing_sl']:
+                if position['trail_triggered']:
+                    profit = self.quantity * 2  # 975 * 2 = 1,950 (trailing SL profit)
+                    self._close_position(option_key, current_ltp, 'TRAILING_SL_HIT', profit)
+                else:
+                    loss = self.quantity * -5  # 975 * -5 = -4,875 (original SL loss)
+                    self._close_position(option_key, current_ltp, 'SL_HIT', loss)
+
+    def _get_option_current_price(self, option_key):
+        """Get current LTP of specific option"""
+        global processors
+
+        # Get the processor for this option
+        processor = processors.get(option_key)
+        if not processor:
+            logger.error(f"❌ No processor found for option: {option_key}")
+            return 0
+
+        # Get current candle LTP (NO ATR calculation needed)
+        if hasattr(processor, 'current_candle') and processor.current_candle:
+            return processor.current_candle.close
+
+        logger.warning(f"⚠️ No current price available for option: {option_key}")
+        return 0
+
+    def _close_position(self, option_key, exit_price, exit_reason, pnl):
+        """Close position and record P&L"""
+        position = self.active_positions[option_key]
+
+        # Update position
+        position['status'] = exit_reason
+        position['exit_price'] = exit_price
+        position['pnl'] = pnl
+        position['exit_time'] = datetime.now(IST)
+
+        # Calculate holding time
+        holding_time = (position['exit_time'] - position['entry_time']).total_seconds() / 60
+
+        # Save to database
+        tracking_data = {
+            'signal_id': position['signal_id'],
+            'timestamp': position['exit_time'].isoformat(),
+            'current_price': exit_price,
+            'pnl': pnl,
+            'status': exit_reason
+        }
+
+        conn = sqlite3.connect(TRADING_DB, timeout=10.0)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO option_tracking (signal_id, timestamp, current_price, pnl, status)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            tracking_data['signal_id'],
+            tracking_data['timestamp'],
+            tracking_data['current_price'],
+            tracking_data['pnl'],
+            tracking_data['status']
+        ))
+
+        # Update buy_signals table with final P&L
+        cursor.execute("""
+            UPDATE buy_signals
+            SET status = ?, entry_price = ?, target = ?, sl = ?
+            WHERE id = ?
+        """, (
+            exit_reason,
+            position['entry_price'],
+            position['target'],
+            position['trailing_sl'],
+            position['signal_id']
+        ))
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"🎯 {exit_reason}: {option_key}")
+        logger.info(f"   💰 Entry: ₹{position['entry_price']:.2f} → Exit: ₹{exit_price:.2f}")
+        logger.info(f"   📊 P&L: ₹{pnl:.2f} | Holding: {holding_time:.1f} min")
+
+        # Remove from active tracking
+        del self.active_positions[option_key]
+
 # === ENHANCED BUY/SELL SIGNAL GENERATOR ===
 class BuySignalGenerator:
     def __init__(self, db_manager, cash_flow_calculator):
@@ -1566,6 +1710,15 @@ class BuySignalGenerator:
                 elif self.previous_trend == -1 and current_trend == 1:
                     # Trend changed from NEGATIVE to POSITIVE
                     self._check_sell_signal_negative_to_positive(current_cash, min_cash, max_cash, nifty_price)
+
+                # NEUTRAL TRANSITION SIGNALS (BUY TERMS)
+                elif self.previous_trend == 1 and current_trend == 0:
+                    # Trend changed from POSITIVE to NEUTRAL
+                    self._check_neutral_signal_positive_to_neutral(current_cash, min_cash, max_cash, nifty_price)
+
+                elif self.previous_trend == -1 and current_trend == 0:
+                    # Trend changed from NEGATIVE to NEUTRAL
+                    self._check_neutral_signal_negative_to_neutral(current_cash, min_cash, max_cash, nifty_price)
 
         # BUY SIGNAL LOGIC with dynamic thresholds
         if current_cash > buy_threshold:  # Positive cash = CE signal
@@ -1683,6 +1836,34 @@ class BuySignalGenerator:
 
         self.last_signal_time = datetime.now(IST)
         logger.info(f"🔴 {action_type} PE SIGNAL: {pe_option['strike']} @ Cash: {cash:.2f}")
+
+    def _check_neutral_signal_positive_to_neutral(self, current_cash, min_cash, max_cash, nifty_price):
+        """Check neutral transition signal when trend changes from positive to neutral"""
+        # From positive trend to neutral: Check if cash is negative and near maximum
+        if current_cash < 0:
+            distance_from_min = abs(current_cash - min_cash)
+            distance_from_max = abs(current_cash - max_cash)
+
+            # Cash should be closer to max than to min
+            if distance_from_max <= distance_from_min:
+                itm_options = self.cash_flow_calculator.get_itm_options(nifty_price)
+                if itm_options['itm_pe']:
+                    self._generate_pe_signal(itm_options['itm_pe'], current_cash, 'BUY')
+                    logger.info(f"🔵 NEUTRAL SIGNAL [+→0]: BUY PE {itm_options['itm_pe']['strike']} | Cash: {current_cash:.0f} (near max: {max_cash:.0f})")
+
+    def _check_neutral_signal_negative_to_neutral(self, current_cash, min_cash, max_cash, nifty_price):
+        """Check neutral transition signal when trend changes from negative to neutral"""
+        # From negative trend to neutral: Check if cash is positive and near minimum
+        if current_cash > 0:
+            distance_from_min = abs(current_cash - min_cash)
+            distance_from_max = abs(current_cash - max_cash)
+
+            # Cash should be closer to min than to max
+            if distance_from_min <= distance_from_max:
+                itm_options = self.cash_flow_calculator.get_itm_options(nifty_price)
+                if itm_options['itm_ce']:
+                    self._generate_ce_signal(itm_options['itm_ce'], current_cash, 'BUY')
+                    logger.info(f"🔵 NEUTRAL SIGNAL [-→0]: BUY CE {itm_options['itm_ce']['strike']} | Cash: {current_cash:.0f} (near min: {min_cash:.0f})")
 
 # === OPTIONS CASH FLOW CALCULATOR ===
 class OptionsTickCashFlowCalculator:
@@ -1877,17 +2058,50 @@ async def websocket_v3_connection_manager():
     global db_manager, processors, cash_flow_calculator, buy_signal_generator
     db_manager = LockFreeDatabaseManager()
 
+    # ENHANCED TOKEN VALIDATION - Wait for daily token update before starting pipeline
+    daily_token_updated = False
+    today = datetime.now(IST).date()
+
+    while not shutdown_event.is_set():
+        config = load_config()
+        ACCESS_TOKEN = config.get('ACCESS_TOKEN', '')
+        token_update_date = config.get('TOKEN_UPDATE_DATE', '')
+
+        # Check if token was updated today
+        if (token_update_date == today.isoformat() and
+            ACCESS_TOKEN and
+            ACCESS_TOKEN != "update-daily-in-admin-panel"):
+            daily_token_updated = True
+            logger.info(f"✅ Daily token validated for {today}")
+            break
+        else:
+            current_time = datetime.now(IST).time()
+            if current_time >= dt_time(9, 15):  # After market open
+                logger.warning(f"⚠️ Market opened but token not updated for {today}")
+                logger.info("💡 Update token at: https://trendvision2004.com/admin/login")
+            else:
+                logger.info(f"⏳ Waiting for daily token update for {today}")
+            await asyncio.sleep(30)  # Check every 30 seconds
+
+    if not daily_token_updated:
+        logger.error("❌ Daily token not updated - Pipeline stopped")
+        return
+
     # Initialize cash flow calculator with selected options
     selected_options, _ = auto_select_options('extracted_data.csv')
     if not selected_options.empty:
         cash_flow_calculator = OptionsTickCashFlowCalculator(selected_options)
         # Initialize buy signal generator
         buy_signal_generator = BuySignalGenerator(db_manager, cash_flow_calculator)
+        # Initialize option tracker
+        option_tracker = OptionTracker(db_manager)
         logger.info(f"✅ Cash flow calculator initialized with {len(selected_options)} options")
         logger.info("✅ Buy signal generator initialized")
+        logger.info("✅ Option tracker initialized")
     else:
         cash_flow_calculator = None
         buy_signal_generator = None
+        option_tracker = None
         logger.warning("❌ No options selected - cash flow calculator and signal generator not initialized")
 
     processors = {}
